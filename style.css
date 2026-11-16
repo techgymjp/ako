@@ -120,3 +120,15 @@ body.en .loc,body.en h3,body.en .sub{letter-spacing:.06em}
 
 .credits{font-size:11px;color:#8090a8;margin-top:18px;line-height:1.6}
 .credits a{color:#9fb0c8}
+
+.legal{font-size:12px;color:#8090a8;margin-top:14px}
+.legal a{color:#9fb0c8}
+#buildInfo{margin-left:8px;opacity:.7}
+#revive .bar{margin:14px auto;max-width:240px}
+#reviveBar{height:100%;width:100%;background:var(--red);transition:width .1s linear}
+/* 横向きの低い画面でもはみ出さないように */
+@media (orientation:landscape) and (max-height:500px){
+  .overlay{align-items:flex-start}
+  h1{font-size:24px;margin-bottom:8px}
+  .lead{margin-bottom:10px}
+}

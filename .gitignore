@@ -1,2 +1,6 @@
 tmp_inspect/
 posetest.html
+node_modules/
+www/
+.DS_Store
+__pycache__/

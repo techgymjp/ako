@@ -750,7 +750,7 @@ function playerKilled(e) {
   player.chestWorld(_v); emitSparks(_v, 30, 0xff2a20, 3);
   banner('無念……', lang === 'en' ? `Fell to the blade of ${T(e.def.name || '吉良家家臣')}` : `${e.def.name || '吉良家家臣'}の刃に倒れた`, 3);
   hint('');
-  later(0.6, () => showResult(false));
+  later(0.6, () => { if (canRevive()) offerRevive(); else showResult(false); });
 }
 
 // =====================================================================
@@ -1041,7 +1041,7 @@ function startGame() {
   Sfx.init();
   resetAll();
   document.body.classList.add('playing');
-  $('title').classList.remove('show'); $('result').classList.remove('show');
+  ['title', 'howto', 'result', 'pause', 'revive'].forEach((id) => $(id).classList.remove('show'));
   G.state = 'intro'; G.stateT = 0;
   banner('元禄十五年十二月十四日', '寅の上刻　本所松坂町・吉良邸', 3.2);
   Sfx.drum(0); Sfx.drum(0.6); Sfx.drum(1.1);
@@ -1064,7 +1064,7 @@ function retryStop() {
   player.mode = 'ready'; player.body.rotation.set(0, 0, 0); player.body.position.set(0, 0, 0);
   placeAtRail(Math.max(0, st.s - 4));
   G.slowmo = 1; G.redFlash = 0; G.attackCD = 1;
-  $('result').classList.remove('show');
+  $('result').classList.remove('show'); $('revive').classList.remove('show');
   G.state = 'walk'; G.stateT = 0;
   st.done = false;
 }
@@ -1214,25 +1214,153 @@ function showResult(win, dawn = false) {
   }
   $('ranking').innerHTML = list.length ? `<h3>${en ? 'Ranking (this device)' : 'ランキング（この端末）'}</h3><ol>` + list.slice(0, 5).map((r, i) =>
     `<li class="${i === mine ? 'me' : ''}"><span>${r.score.toLocaleString()}</span><small>${r.win ? (en ? 'Vengeance' : '本懐') : (en ? 'Dawn' : '夜明け')} · ${Math.floor(r.time / 60)}:${String(r.time % 60).padStart(2, '0')} · ${r.d}</small></li>`).join('') + '</ol>' : '';
-  $('retryHere').style.display = win || dawn ? 'none' : '';
+  // web-only:start
+  if ($('retryHere')) $('retryHere').style.display = win || dawn ? 'none' : '';
+  // web-only:end
+  G.lastResult = { win, dawn };
   $('result').classList.add('show');
   showBest();
+  syncBanner();
 }
 
 function togglePause() {
   if (G.state === 'title' || G.state === 'win' || G.state === 'dead') return;
-  if (G.state === 'paused') { G.state = G.prevState; $('pause').classList.remove('show'); }
-  else { G.prevState = G.state; G.state = 'paused'; $('pause').classList.add('show'); }
+  if (G.state === 'paused') resumeGame();
+  else pauseGame();
+}
+function pauseGame() {
+  if (G.state === 'paused' || !['intro', 'walk', 'fight', 'event', 'kira'].includes(G.state)) return;
+  G.prevState = G.state; G.state = 'paused'; $('pause').classList.add('show');
+  syncBanner();
+}
+// ポーズからの再開（アプリでは全画面広告を挟む）
+async function resumeGame() {
+  if (G.state !== 'paused') return;
+  $('pause').classList.remove('show');
+  syncBanner();
+  await Ads.showInterstitial(3000);
+  G.state = G.prevState;
 }
 
-$('startBtn').onclick = startGame;
-$('howtoBtn').onclick = () => { $('title').classList.remove('show'); $('howto').classList.add('show'); };
-$('howtoBack').onclick = () => { $('howto').classList.remove('show'); $('title').classList.add('show'); };
+// ---- アプリ（Capacitor）の機能。Web 版では Capacitor がないので何もしない ----
+const NATIVE = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+const plugin = (name) => (NATIVE && window.Capacitor.Plugins ? window.Capacitor.Plugins[name] : null);
+window.GameAudio = {
+  suspend() { try { if (Sfx.ctx) Sfx.ctx.suspend(); if ('speechSynthesis' in window) speechSynthesis.cancel(); } catch (e) { /* 無視 */ } },
+  resume() { try { if (Sfx.ctx && !document.hidden) Sfx.ctx.resume(); } catch (e) { /* 無視 */ } },
+};
+
+// バナー：トップ・遊び方・一時停止・結果の画面だけ（プレイ中は出さない）
+function syncBanner() {
+  const on = ['title', 'howto', 'pause', 'result'].some((id) => $(id).classList.contains('show')) && !$('loading').classList.contains('show');
+  Ads.setBanner(on);
+}
+
+// トップ画面に戻る
+function goTitle() {
+  enemies.forEach((e) => e.ch.removeFrom(scene));
+  enemies = [];
+  if (kira) { kira.ch.removeFrom(scene); kira = null; }
+  ['howto', 'result', 'pause', 'revive'].forEach((id) => $(id).classList.remove('show'));
+  document.body.classList.remove('playing');
+  hint('');
+  G.state = 'title'; G.slowmo = 1; G.redFlash = 0; G.whiteFlash = 0;
+  player.mode = 'ready'; player.body.rotation.set(0, 0, 0); player.body.position.set(0, 0, 0);
+  placeAtRail(0);
+  $('title').classList.add('show');
+  showBest();
+  syncBanner();
+}
+// 画面を切り替える前に全画面広告を出す
+const withAd = (fn) => async () => { Ads.setBanner(false); await Ads.showInterstitial(3000); fn(); };
+
+// リワード広告：斬られたら、広告を見てこの戦いからやり直せる（1 回の討ち入りで 5 回まで）
+const REDO_MAX = 5;
+const canRevive = () => Ads.canReward && G.retries < REDO_MAX;
+let reviveTimer = null;
+function offerRevive() {
+  // 斬られた様子を見届けてから案内を出し、数秒で自動的に結果へ進む
+  later(1.6, () => {
+    if (G.state !== 'dead') return;
+    const left = REDO_MAX - G.retries;
+    $('reviveText').textContent = lang === 'en' ? `Watch an ad to retry this fight? (${left} left)` : `広告を見て、この戦いからやり直しますか？（残り ${left} 回）`;
+    $('revive').classList.add('show');
+    const t0 = performance.now(), LIMIT = 6000;
+    clearInterval(reviveTimer);
+    reviveTimer = setInterval(() => {
+      const k = 1 - (performance.now() - t0) / LIMIT;
+      $('reviveBar').style.width = Math.max(0, k * 100) + '%';
+      if (k <= 0) closeRevive(false);
+    }, 100);
+  });
+}
+async function closeRevive(watch) {
+  if (!$('revive').classList.contains('show')) return;
+  clearInterval(reviveTimer);
+  $('revive').classList.remove('show');
+  if (watch) {
+    const r = await Ads.showRewarded();
+    if (r === 'rewarded') { retryStop(); return; }
+  }
+  showResult(false);
+}
+$('reviveBtn').onclick = () => closeRevive(true);
+$('reviveSkip').onclick = () => closeRevive(false);
+
+// シェア（アプリでは Android の共有メニュー、Web 版では端末の共有機能かクリップボード）
+async function shareResult() {
+  const r = G.lastResult || {};
+  const en = lang === 'en';
+  const head = en ? 'Chushingura: 47 Ronin Raid' : '忠臣蔵 赤穂浪士の討ち入り';
+  const what = r.win ? (en ? 'Vengeance fulfilled!' : '本懐成就！') : (en ? 'Fell in battle...' : '無念……');
+  const text = `${head}｜${what} ${en ? 'Score' : '得点'} ${G.score.toLocaleString()}・${en ? `retries ${G.retries}` : `やり直し${G.retries}回`} #忠臣蔵`;
+  try {
+    const Share = plugin('Share');
+    if (Share) await Share.share({ title: head, text });
+    else if (navigator.share) await navigator.share({ title: head, text });
+    else { await navigator.clipboard.writeText(text); comboText(en ? 'Copied!' : 'コピーしました'); }
+  } catch (e) { /* 閉じられた */ }
+}
+
+$('startBtn').onclick = withAd(startGame);
+$('howtoStart').onclick = withAd(startGame);
+$('howtoBtn').onclick = () => { $('title').classList.remove('show'); $('howto').classList.add('show'); syncBanner(); };
+$('howtoBack').onclick = withAd(goTitle);
 addEventListener('pointerdown', () => { Sfx.init(); if (G.state === 'title') Sfx.music('title'); }, { once: true });
-$('retryBtn').onclick = startGame;
-$('retryHere').onclick = retryStop;
-$('resumeBtn').onclick = togglePause;
+$('retryBtn').onclick = withAd(startGame);
+// web-only:start
+if ($('retryHere')) $('retryHere').onclick = retryStop;
+// web-only:end
+$('resultTop').onclick = withAd(goTitle);
+$('shareBtn').onclick = shareResult;
+$('resumeBtn').onclick = resumeGame;
+$('pauseTop').onclick = withAd(goTitle);
 $('pauseBtn').onclick = togglePause;
+
+// 戻るボタン：プレイ中はポーズ、ポーズ中は再開、遊び方はトップへ、トップと結果画面ではアプリを終了
+if (plugin('App')) {
+  plugin('App').addListener('backButton', () => {
+    if (Ads.showing) return;
+    if ($('revive').classList.contains('show')) { closeRevive(false); return; }
+    if ($('howto').classList.contains('show')) { withAd(goTitle)(); return; }
+    if (G.state === 'paused') { resumeGame(); return; }
+    if (['intro', 'walk', 'fight', 'event', 'kira'].includes(G.state)) { pauseGame(); return; }
+    if ($('title').classList.contains('show') || $('result').classList.contains('show')) plugin('App').exitApp();
+  });
+}
+// 別のアプリに切り替えたら自動でポーズし、音も止める
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) { pauseGame(); window.GameAudio.suspend(); }
+  else if (!Ads.showing) window.GameAudio.resume();
+});
+
+// タイトル画面：バージョンとプライバシーポリシー、（必要な地域では）広告の設定
+if (window.APP_VERSION && window.APP_VERSION !== 'dev') $('buildInfo').textContent = window.APP_VERSION;
+Ads.initDone.then(() => { if (Ads.privacyOptionsRequired) $('adPrivacy').hidden = false; });
+$('adPrivacyLink').addEventListener('click', (e) => { e.preventDefault(); Ads.showPrivacyOptions(); });
+const setPrivacyUrl = () => { $('privacyLink').href = lang === 'en' ? 'https://techgym.jp/privacy-policy-en/' : 'https://techgym.jp/privacy-policy/'; };
+setPrivacyUrl();
+
 $('muteBtn').onclick = () => { $('muteBtn').classList.toggle('off', Sfx.toggle()); };
 function showBest() {
   const list = loadRanking();
@@ -1241,7 +1369,7 @@ function showBest() {
 }
 applyStatic();
 showBest();
-$('langBtn').onclick = () => { setLang(lang === 'en' ? 'ja' : 'en'); showBest(); };
+$('langBtn').onclick = () => { setLang(lang === 'en' ? 'ja' : 'en'); showBest(); setPrivacyUrl(); };
 
 // =====================================================================
 // 更新
@@ -1688,11 +1816,14 @@ async function boot() {
   await new Promise((r) => setTimeout(r, 150));
   $('loading').classList.remove('show');
   $('title').classList.add('show');
+  syncBanner();
 }
 boot();
 
-// デバッグ・テスト用
+// web-only:start
+// デバッグ・テスト用（アプリには入れない）
 function sim(sec, step = 1 / 30) {
   for (let t = 0; t < sec; t += step) { update(step); scene.updateMatrixWorld(); camera.updateMatrixWorld(); }
 }
 window.__ako = { fx: () => ({ strokes: strokes.length, stamps: stamps.length }), sim, G, STOPS, enemies: () => enemies, player, startGame, retryStop, camera, kira: () => kira, RAIL_TOTAL };
+// web-only:end

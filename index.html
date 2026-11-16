@@ -44,6 +44,11 @@
     <button id="howtoBtn" class="btn ghost small">遊び方</button>
     <p class="best" id="bestTime"></p>
     <button id="langBtn" class="lang">English</button>
+    <p class="legal">
+      <a id="privacyLink" href="https://techgym.jp/privacy-policy/" target="_blank" rel="noopener">プライバシーポリシー</a>
+      <span id="adPrivacy" hidden> ・ <a href="#" id="adPrivacyLink">広告の設定</a></span>
+      <span id="buildInfo"></span>
+    </p>
   </div>
 </section>
 
@@ -60,8 +65,11 @@
       <div class="step"><i>返</i><div><b>金の矢印で返し技</b><p>矢印が金色になった瞬間、その向きになぞると大反撃。</p></div></div>
       <div class="step"><i>援</i><div><b>同志を守る</b><p>「助太刀！」の敵を斬れ。全員生還で大きな得点。</p></div></div>
     </div>
+    <!-- web-only -->
     <p class="howNote" id="howtoNote">パソコンは矢印キーでも斬れます</p>
-    <button id="howtoBack" class="btn">戻る</button>
+    <!-- /web-only -->
+    <button id="howtoStart" class="btn">討ち入り</button><br>
+    <button id="howtoBack" class="btn ghost small">トップへ</button>
     <p class="credits" id="credits">3D models: “Japanese Clothes” by Takeru / “Katana Samurai (game ready asset)” by Pixel Life — <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a> (Sketchfab)</p>
   </div>
 </section>
@@ -74,8 +82,12 @@
     <dl id="resultStats" class="stats"></dl>
     <div id="ranking"></div>
     <div class="btns">
+      <!-- web-only -->
       <button id="retryHere" class="btn">この場から</button>
-      <button id="retryBtn" class="btn ghost">最初から</button>
+      <!-- /web-only -->
+      <button id="retryBtn" class="btn">最初から</button>
+      <button id="shareBtn" class="btn ghost small">シェア</button>
+      <button id="resultTop" class="btn ghost small">トップへ</button>
     </div>
   </div>
 </section>
@@ -84,7 +96,8 @@
 <section id="pause" class="overlay">
   <div class="panel small">
     <h2 id="pauseH2">一時停止</h2>
-    <button id="resumeBtn" class="btn">再開</button>
+    <button id="resumeBtn" class="btn">再開</button><br>
+    <button id="pauseTop" class="btn ghost small">トップへ</button>
   </div>
 </section>
 
@@ -92,6 +105,20 @@
 <button id="muteBtn" aria-label="音">♪</button>
 
 <noscript>このゲームを遊ぶにはJavaScriptを有効にしてください。</noscript>
+<!-- 斬られたとき：広告を見てこの戦いからやり直す（アプリ版） -->
+<section id="revive" class="overlay">
+  <div class="panel small">
+    <h2 id="reviveH">無念……</h2>
+    <p class="lead" id="reviveText">広告を見て、この戦いからやり直しますか？</p>
+    <button id="reviveBtn" class="btn">やり直す</button>
+    <div class="bar"><div id="reviveBar"></div></div>
+    <button id="reviveSkip" class="btn ghost small">あきらめる</button>
+  </div>
+</section>
+
+<script src="js/ads-config.js"></script>
+<script src="js/build-info.js"></script>
+<script src="js/ads.js"></script>
 <script type="module" src="js/main.js"></script>
 </body>
 </html>

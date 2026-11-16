@@ -1,0 +1,8 @@
+{
+  "appId": "jp.techgym.ako",
+  "appName": "忠臣蔵",
+  "webDir": "www",
+  "android": {
+    "backgroundColor": "#05070d"
+  }
+}

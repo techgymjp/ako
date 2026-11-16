@@ -73,6 +73,34 @@ Mixamo（Adobe）のモーションを、FBXから関節の位置だけを書き
 
 テクスチャはWeb向けに縮小しています。
 
+## Android アプリ
+
+Capacitor でゲームのファイルをアプリに同梱しています（オフラインで遊べます）。パッケージ名は `jp.techgym.ako`。
+ビルドは GitHub Actions（`.github/workflows/android.yml`）で行い、既定ブランチへの push のたびに動作確認用の APK（デバッグ署名・テスト広告）を Release に載せます。
+
+- リリース画面（説明とビルド番号つき）：https://github.com/techgymjp/ako/releases/tag/android-latest
+- APK を直接ダウンロード：https://github.com/techgymjp/ako/releases/latest/download/ako.apk
+- スマホで読み取る QR コード：`docs/apk-qr.png`
+
+GitHub Secrets（`ANDROID_KEYSTORE_BASE64` など 4 つ）を登録すると、Google Play 用の署名付き AAB（本番広告）も Artifact に作られます。
+
+| コマンド | 内容 |
+| --- | --- |
+| `npm run build` | Web 版のファイルを `www/` にまとめる |
+| `npm run build:app` | アプリ用（Web 版だけの部分〔テスト用の仕組み・キーボードの案内・無料のやり直しボタン〕を取り除く） |
+| `npm run android:sync` | アプリ用にまとめて Android プロジェクトへ反映 |
+
+### 広告（AdMob）
+
+- バナー：トップ・遊び方・一時停止・結果の画面だけ（プレイ中は出さない）
+- 全画面広告：討ち入りを始めるとき、トップへ戻るとき、一時停止から再開するとき、結果画面から最初からやり直すとき
+- リワード広告：斬られたときに「広告を見て、この戦いからやり直す」（1 回の討ち入りで 5 回まで）。最後まで見たときだけやり直せる
+- 本番の広告ユニット ID は `js/ads.js`、AdMob のアプリ ID は `android/app/src/main/res/values/strings.xml` の `admob_app_id`
+
+## ライセンス
+
+著作権はテックジム株式会社に帰属します（All rights reserved）。許可なく複製・改変・再配布すること、Web サイトやアプリとして公開・販売すること、名前・アイコン・画像を使うことを禁止します。テックジムの受講生が学習目的で複製・改変することは許可しますが、アプリストアでの公開・広告の掲載・販売などの商用利用はできません。詳しくは `LICENSE`（日本語・英語）を見てください。同梱しているライブラリと 3D モデル・モーションは、それぞれのライセンスに従います。
+
 ## ローカルで動かす
 
 ES Modulesを使っているため、HTTPサーバー経由で開いてください。
