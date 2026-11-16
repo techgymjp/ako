@@ -277,9 +277,9 @@ export class Character {
 
     // 胴
     this.torso = new THREE.Group(); this.hips.add(this.torso);
-    const chest = mesh(G.chest, coat, this.torso); chest.scale.z = 0.74; cloth.push(chest);
+    const chest = mesh(G.chest, coat, this.torso); chest.scale.z = 0.74; cloth.push(chest); this.chestMesh = chest;
     const obi = mesh(G.obi, mat('obi' + type, () => std({ color: type === 'kira' ? '#8a7a5a' : type.startsWith('ronin') || type === 'oishi' ? '#e9e5da' : '#2d2a35', roughness: 0.8 })), this.torso);
-    obi.scale.z = 0.76; cloth.push(obi);
+    obi.scale.z = 0.76; cloth.push(obi); this.obiMesh = obi;
     mesh(G.neck, skin, this.torso);
 
     // 頭
@@ -350,6 +350,13 @@ export class Character {
       this.torso.add(this.lantern);
     }
 
+    // 影を使わない軽い設定では、足元に丸い影を置く
+    if (!shadowsOn) {
+      const blob = new THREE.Mesh(G.blob || (G.blob = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2)),
+        mat('blob', () => new THREE.MeshBasicMaterial({ map: TX.blobTex(), transparent: true, depthWrite: false, opacity: 0.85 })));
+      blob.position.y = 0.025; blob.scale.set(0.95, 1, 0.95); blob.renderOrder = -1;
+      this.body.add(blob);
+    }
     const s = opts.scale || (type === 'kira' ? 0.88 : 0.93);
     this.root.scale.setScalar(s);
     this.outfitType = type;
@@ -404,7 +411,9 @@ export class Character {
     const skeleton = new THREE.Skeleton(bones);
     const look = CLOTH_LOOK[this.outfitType] || CLOTH_LOOK.retainer;
     this.garments = [];
-    for (const part of ['hakama', 'jinbei', 'haori']) {
+    // 羽織を着るときは中の甚兵衛は描かない（ほとんど隠れる。軽くするため）。胸元は手作りの胴で見せる
+    const parts = look.haori ? ['hakama', 'haori'] : ['hakama', 'jinbei'];
+    for (const part of parts) {
       if (!look[part]) continue;
       const m = new THREE.SkinnedMesh(ASSETS.garments[part].geo, clothMaterial(this.outfitType, part));
       m.frustumCulled = false;
@@ -415,6 +424,7 @@ export class Character {
       this.garments.push(m);
     }
     this.cloth.forEach((m) => { m.visible = false; });
+    if (look.haori) { this.chestMesh.visible = true; this.chestMesh.scale.set(0.9, 1, 0.66); }
     this.root.position.copy(saved.p); this.root.rotation.y = saved.r;
   }
 

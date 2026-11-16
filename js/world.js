@@ -1,6 +1,7 @@
 // 吉良邸の3D再現（間取り図の座標から生成）
 import * as THREE from 'three';
 import * as TX from './textures.js';
+import { mergeGeometries } from '../vendor/addons/utils/BufferGeometryUtils.js';
 
 // 間取り図（画像 1200×900px）上の座標 → ワールド座標（m）
 // 屋敷全体（東西約130m×南北約54m）を 1px = 0.125m とする
@@ -118,6 +119,7 @@ export function clampToRoom(room, v, margin = 0.45) {
 
 // ---------- 構築 ----------
 export function buildWorld(scene, quality) {
+  const startCount = scene.children.length;
   const lights = []; // 動的点光源の候補
   const shadows = quality.shadows;
   const std = (o) => new THREE.MeshStandardMaterial(o);
@@ -457,5 +459,35 @@ export function buildWorld(scene, quality) {
   out(68, -40, 90, -4, 5, 0); out(68, 4, 90, 40, 5, 0);                   // 鳥居邸・牧野邸（東）
   out(-95, -40, -70, 40, 5, 0);                                            // 回向院（西）
 
+  mergeStatic(scene, startCount);
   return { lights, mats };
+}
+
+// 動かない建物・木・塀などを材質ごとに1つのメッシュへまとめる（描画の命令を減らしてスマホでも軽く）
+function mergeStatic(scene, startCount) {
+  const added = scene.children.slice(startCount);
+  scene.updateMatrixWorld(true);
+  const groups = new Map();
+  const meshes = [];
+  for (const root of added) root.traverse((o) => { if (o.isMesh && !o.isInstancedMesh) meshes.push(o); });
+  for (const m of meshes) {
+    let g = m.geometry.index ? m.geometry.toNonIndexed() : m.geometry.clone();
+    if (!g.attributes.normal) g.computeVertexNormals();
+    if (!g.attributes.uv) g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(g.attributes.position.count * 2), 2));
+    for (const k of Object.keys(g.attributes)) if (!['position', 'normal', 'uv'].includes(k)) g.deleteAttribute(k);
+    g.applyMatrix4(m.matrixWorld);
+    const key = m.material.uuid + (m.castShadow ? 'c' : '') + (m.receiveShadow ? 'r' : '');
+    if (!groups.has(key)) groups.set(key, { mat: m.material, cast: m.castShadow, receive: m.receiveShadow, geos: [] });
+    groups.get(key).geos.push(g);
+  }
+  for (const root of added) scene.remove(root);
+  for (const { mat, cast, receive, geos } of groups.values()) {
+    const merged = mergeGeometries(geos, false);
+    if (!merged) continue;
+    merged.computeBoundingSphere();
+    const mesh = new THREE.Mesh(merged, mat);
+    mesh.castShadow = cast; mesh.receiveShadow = receive;
+    mesh.matrixAutoUpdate = false;
+    scene.add(mesh);
+  }
 }

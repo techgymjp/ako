@@ -134,3 +134,8 @@ body.en .loc,body.en h3,body.en .sub{letter-spacing:.06em}
 }
 
 .btn.share{background:#1d2b44;box-shadow:0 0 0 4px #1d2b44,0 6px 20px rgba(0,0,0,.6)}
+
+/* アプリ：画面下のバナー広告の分だけ余白を空ける */
+body.has-banner .overlay{padding-bottom:calc(84px + env(safe-area-inset-bottom))}
+/* スマホの軽い設定：光の仕上げの代わりに周辺減光だけCSSで */
+body.lite #fx{background:radial-gradient(ellipse at center,rgba(0,0,0,0) 55%,rgba(0,0,0,.45) 100%)}

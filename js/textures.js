@@ -331,3 +331,10 @@ export const slashFlashTex = () => make('slashflash', 256, 32, (g, w, h) => {
   g.fillStyle = gx;
   g.beginPath(); g.moveTo(0, h / 2); g.quadraticCurveTo(w / 2, h * 0.1, w, h / 2); g.quadraticCurveTo(w / 2, h * 0.9, 0, h / 2); g.fill();
 }, { repeat: false });
+
+// 足元の丸い影
+export const blobTex = () => make('blob', 64, 64, (g, w, h) => {
+  const grd = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  grd.addColorStop(0, 'rgba(0,0,0,.6)'); grd.addColorStop(0.6, 'rgba(0,0,0,.3)'); grd.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = grd; g.fillRect(0, 0, w, h);
+}, { repeat: false });

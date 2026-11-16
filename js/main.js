@@ -16,13 +16,19 @@ import { OutputPass } from '../vendor/addons/postprocessing/OutputPass.js';
 // 初期化
 // =====================================================================
 const isTouch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
-const lowEnd = isTouch && Math.min(screen.width, screen.height) < 500;
-const quality = { shadows: true, shadowSize: lowEnd ? 1024 : 2048, pixelRatio: Math.min(devicePixelRatio, lowEnd ? 1.5 : 2) };
+// スマホ・タブレット（アプリを含む）は軽い設定：影は足元の丸い影だけ、解像度を抑え、光のにじみ等の仕上げを省く
+const lowEnd = isTouch;
+const quality = {
+  shadows: !lowEnd, shadowSize: 2048,
+  pixelRatio: Math.min(devicePixelRatio, lowEnd ? 1.25 : 2),
+  post: !lowEnd, lights: lowEnd ? 3 : 6, snow: lowEnd ? 700 : 3500,
+};
+if (lowEnd) document.body.classList.add('lite');
 setCharacterShadows(quality.shadows);
 if (isTouch) document.body.classList.add('touch');
 
 const canvas = document.getElementById('game');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: !lowEnd, powerPreference: 'high-performance' });
 renderer.setPixelRatio(quality.pixelRatio);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.15;
@@ -43,7 +49,7 @@ const camera = new THREE.PerspectiveCamera(58, 1, 0.08, 400);
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
 const bloom = new UnrealBloomPass(new THREE.Vector2(512, 512), 0.6, 0.55, 0.82);
-if (!lowEnd) composer.addPass(bloom);
+composer.addPass(bloom);
 const filmPass = new ShaderPass({
   uniforms: { tDiffuse: { value: null }, uTime: { value: 0 }, uRed: { value: 0 } },
   vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
@@ -72,6 +78,7 @@ const overlay = document.getElementById('fx');
 const octx = overlay.getContext('2d');
 
 let baseFov = 58;
+const OVERLAY_DPR = Math.min(devicePixelRatio, lowEnd ? 1.5 : 2);
 function resize() {
   const w = innerWidth, h = innerHeight;
   renderer.setSize(w, h, false);
@@ -80,7 +87,7 @@ function resize() {
   camera.fov = w < h ? 72 : 58;
   baseFov = camera.fov;
   camera.updateProjectionMatrix();
-  overlay.width = w * devicePixelRatio; overlay.height = h * devicePixelRatio;
+  overlay.width = w * OVERLAY_DPR; overlay.height = h * OVERLAY_DPR;
   overlay.style.width = w + 'px'; overlay.style.height = h + 'px';
 }
 addEventListener('resize', resize);
@@ -101,7 +108,7 @@ const world = buildWorld(scene, quality);
 
 // 近くの灯りだけを点光源に割り当てる
 const lightPool = [];
-for (let i = 0; i < 6; i++) { const l = new THREE.PointLight(0xffa860, 0, 10, 1.6); scene.add(l); lightPool.push(l); }
+for (let i = 0; i < quality.lights; i++) { const l = new THREE.PointLight(0xffa860, 0, 10, 1.6); scene.add(l); lightPool.push(l); }
 let lightPoolT = 0;
 function updateLightPool(center, dt) {
   lightPoolT -= dt;
@@ -119,7 +126,7 @@ const lanternLight = new THREE.PointLight(0xffb870, 9, 11, 1.5);
 scene.add(lanternLight);
 
 // 雪
-const SNOW_N = lowEnd ? 1800 : 3500;
+const SNOW_N = quality.snow;
 const snowGeo = new THREE.BufferGeometry();
 const snowPos = new Float32Array(SNOW_N * 3), snowVel = new Float32Array(SNOW_N);
 for (let i = 0; i < SNOW_N; i++) {
@@ -412,7 +419,8 @@ const ETYPES = {
   b2: { outfit: 'boss2', hp: 4, guard: true, speed: 3.0, windup: 0.85, boss: true, feint: 0.4, shift: 1.5 },
   b3: { outfit: 'boss3', hp: 2, guard: true, speed: 2.8, windup: 0.95, boss: true, feint: 0.25, shift: 2.4 },
 };
-const COUNTER_WIN = 0.42;   // 返し技を受け付ける時間（斬撃の直前）
+const COUNTER_WIN = 0.55;   // 返し技を受け付ける時間（斬撃の直前）
+const WINDUP_OPEN = 0.35;   // 振りかぶりの初めのこの割合までは、普通に斬れば止められる
 const DAWN = 420;           // 夜明けまで（秒）
 const STRIKE_DIRS = [[0, -1], [0.7, -0.7], [-0.7, -0.7], [1, 0], [-1, 0]];
 const GUARD_ANGLES = [0, Math.PI / 2, Math.PI / 4, -Math.PI / 4];
@@ -443,6 +451,7 @@ const G = {
   room: null, lastRoomName: '', facing: 0, tutorialShown: false,
   prevState: null,
   score: 0, counters: 0, scoreParts: { kill: 0, counter: 0, clear: 0 }, stopStartT: 0, snap: null, dawnShown: false,
+  swings: 0, hits: 0, whiffRow: 0, tired: 0,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -599,7 +608,7 @@ function updateEnemy(e, dt) {
     }
     ch.update(dt);
     // 亡骸は二つ先の場面まで残す
-    if (STOPS.indexOf(e.stop) < G.stopIdx - 1) { ch.removeFrom(scene); e.removed = true; }
+    if (STOPS.indexOf(e.stop) < G.stopIdx - (lowEnd ? 0 : 1)) { ch.removeFrom(scene); e.removed = true; }
     return;
   }
   e.t += dt;
@@ -803,7 +812,7 @@ function onDown(x, y) {
   Sfx.init();
   if (G.state === 'dead' || G.state === 'win' || G.state === 'title') return;
   swipe.active = true; swipe.pts = [{ x, y, t: performance.now() }];
-  swipe.id++; swipe.cuts = 0; swipe.blocked = false; swipe.whiffed = false;
+  swipe.id++; swipe.cuts = 0; swipe.blocked = false; swipe.whiffed = false; swipe.counted = false;
   trailPts.push({ x, y, t: performance.now(), br: true });
 }
 function onMove(x, y) {
@@ -815,7 +824,28 @@ function onMove(x, y) {
   trailPts.push({ x, y, t: now });
   processSegment(prev, { x, y, t: now });
 }
-function onUp() { swipe.active = false; if (trailPts.length) trailPts[trailPts.length - 1].end = true; }
+function onUp() {
+  swipe.active = false;
+  if (trailPts.length) trailPts[trailPts.length - 1].end = true;
+  // 空振りが続くと太刀筋が乱れる
+  if (swipe.counted && (G.state === 'fight' || G.state === 'kira')) {
+    if (swipe.cuts === 0 && !swipe.blocked) {
+      // 空振り：続けて3回、または短い間に3回で乱れる（当たった振りは数えない）
+      const now = performance.now();
+      swingTimes.push(now);
+      while (swingTimes.length && now - swingTimes[0] > 1500) swingTimes.shift();
+      if (++G.whiffRow >= 3 || swingTimes.length >= 3) disorder();
+    } else G.whiffRow = 0;
+  }
+}
+// 太刀筋が乱れる：しばらく斬っても当たらない（めちゃくちゃに振り回すと起きる）
+const swingTimes = [];
+function disorder() {
+  if (G.tired > 0) return;
+  G.tired = 0.9; G.whiffRow = 0; swingTimes.length = 0;
+  comboText('太刀筋が乱れた！');
+  Sfx.clatter();
+}
 
 function swipeDir() {
   const pts = swipe.pts;
@@ -836,6 +866,9 @@ function processSegment(a, b) {
   const dt = Math.max(1, b.t - a.t);
   const speed = Math.hypot(b.x - a.x, b.y - a.y) / dt; // px/ms
   if (speed < 0.45 || swipe.blocked) return;
+  // 1回のなぞりを「一振り」として数える。短い間に振りすぎると太刀筋が乱れる
+  if (G.tired > 0) return;
+  if (!swipe.counted && (G.state === 'fight' || G.state === 'kira')) { swipe.counted = true; G.swings++; }
   const dir = swipeDir();
   let hitAny = false;
   // 斬りかかってくる敵（返し技の対象）を先に判定する
@@ -894,8 +927,19 @@ function doCut(e, dir, speed) {
   // 返し技：斬りかかる直前に、斬撃と逆向きにフリック（槍の突きは横に払う）
   if (e !== kira && (e.state === 'windup' && e.t >= e.windup - COUNTER_WIN && !e.feint || e.state === 'strike' && e.t < 0.1)) {
     const sd = e.strikeDir || { x: 0, y: -1 };
-    const ok = e.ty.thrust ? Math.abs(dir.y) < 0.55 : (dir.x * sd.x + dir.y * sd.y) < -0.5;
-    if (ok) { doCounter(e, dir); return; }
+    const ok = e.ty.thrust ? Math.abs(dir.y) < 0.6 : (dir.x * sd.x + dir.y * sd.y) < -0.35;
+    if (ok) { if (swipe.cuts === 0) G.hits++; doCounter(e, dir); return; }
+  }
+  // 刀を振り上げた後の敵には、普通に斬っても受け止められる（止めるなら振りかぶりの初めか、返し技）
+  if (e !== kira && ((e.state === 'windup' && !e.feint && e.t >= e.windup * WINDUP_OPEN) || e.state === 'strike')) {
+    swipe.blocked = true;
+    later(0.13, () => {
+      Sfx.clang(0.8);
+      e.ch.chestWorld(_v2); emitSparks(_v2, 18, 0xffd27a, 4);
+      G.camShake = 0.12; G.blocks++;
+      comboText('受け止められた！');
+    });
+    return;
   }
   if (e !== kira && e.state === 'guard' && e.guard !== null && angleDiffMod180(sAng, e.guard) < 0.5) {
     // 受け止められた
@@ -914,6 +958,7 @@ function doCut(e, dir, speed) {
     return;
   }
   const dmg = speed > 2.6 ? 2 : 1;
+  if (swipe.cuts === 0) G.hits++;
   swipe.cuts++;
   const combo = swipe.cuts;
   pendingCuts.push({ t: 0.14, fn: () => {
@@ -963,8 +1008,8 @@ function doCounter(e, dir) {
     }
     comboText('返し技！');
     e.ch.chestWorld(_v2);
-    addScore(300, '返し技', _v2);
-    G.scoreParts.counter += 300;
+    addScore(500, '返し技', _v2);
+    G.scoreParts.counter += 500;
   });
 }
 
@@ -1026,7 +1071,8 @@ function resetAll() {
   clearBlood();
   STOPS.forEach((s) => { s.spawned = false; s.done = false; });
   Object.assign(G, { s: 0, stopIdx: 0, playTime: 0, kills: 0, retries: 0, maxCombo: 0, blocks: 0, slowmo: 1, redFlash: 0, whiteFlash: 0, attackCD: 0, lastRoomName: '',
-    score: 0, counters: 0, scoreParts: { kill: 0, counter: 0, clear: 0 }, stopStartT: 0, snap: null, dawnShown: false });
+    score: 0, counters: 0, scoreParts: { kill: 0, counter: 0, clear: 0 }, stopStartT: 0, snap: null, dawnShown: false,
+    swings: 0, hits: 0, whiffRow: 0, tired: 0 });
   allies.forEach((a) => { if (a.down) a.ch.revive(); a.hp = 2; a.down = false; a.duel = null; });
   hud.score.textContent = '0';
   updateAlliesHud();
@@ -1075,10 +1121,10 @@ function retryStop() {
   STOPS.forEach((s, i) => { if (i > G.stopIdx && s.spawned) clearStopEnemies(s); });
   G.retries++;
   if (G.snap) {
-    G.score = G.snap.score; G.scoreParts = { ...G.snap.parts }; G.kills = G.snap.kills; G.counters = G.snap.counters;
+    G.score = G.snap.score; G.swings = G.snap.swings; G.hits = G.snap.hits; G.scoreParts = { ...G.snap.parts }; G.kills = G.snap.kills; G.counters = G.snap.counters;
     allies.forEach((a, i) => { const sa = G.snap.allies[i]; a.hp = sa.hp; if (a.down && !sa.down) a.ch.revive(); a.down = sa.down; });
   }
-  addScore(-300, 'やり直し');
+  addScore(-1000, 'やり直し');
   updateAlliesHud();
   player.mode = 'ready'; player.body.rotation.set(0, 0, 0); player.body.position.set(0, 0, 0);
   placeAtRail(Math.max(0, st.s - 4));
@@ -1121,7 +1167,7 @@ function arriveStop(st) {
 
 function takeSnapshot() {
   G.stopStartT = G.playTime;
-  G.snap = { score: G.score, parts: { ...G.scoreParts }, kills: G.kills, counters: G.counters, allies: allies.map((a) => ({ hp: a.hp, down: a.down })) };
+  G.snap = { swings: G.swings, hits: G.hits, score: G.score, parts: { ...G.scoreParts }, kills: G.kills, counters: G.counters, allies: allies.map((a) => ({ hp: a.hp, down: a.down })) };
 }
 
 function stopCleared(st) {
@@ -1160,9 +1206,12 @@ function finalBonus() {
   const alive = allies.filter((a) => !a.down).length;
   const allyPts = alive * 500 + (alive === allies.length ? 2000 : 0);
   const timePts = Math.max(0, Math.floor(DAWN - G.playTime)) * 5;
-  G.score += allyPts + timePts;
+  // 太刀筋：振った回数のうち当たった割合（30%で0点、90%以上で3,000点）
+  const acc = G.swings ? G.hits / G.swings : 0;
+  const accPts = Math.round(3000 * THREE.MathUtils.clamp((acc - 0.3) / 0.6, 0, 1));
+  G.score += allyPts + timePts + accPts;
   hud.score.textContent = G.score.toLocaleString();
-  return { alive, allyPts, timePts };
+  return { alive, allyPts, timePts, acc, accPts };
 }
 
 function dawnOver() {
@@ -1201,7 +1250,8 @@ function showResult(win, dawn = false) {
   $('resultText').innerHTML = T(win
     ? '<p>赤穂浪士四十七士は吉良上野介を討ち取り、主君・浅野内匠頭の無念を晴らした。</p><p>一行は雪の江戸の町を、亡君の眠る<b>泉岳寺</b>へと引き揚げていった。</p>'
     : dawn ? '<p>夜が明けてしまった。吉良上野介を討ち漏らした……。</p>'
-      : '<p>大石内蔵助は敵の刃に倒れた……。</p><p>刀が赤く光った敵を先に斬れ。構えた刀と同じ向きに斬ると弾かれるぞ。</p>');
+      : '<p>大石内蔵助は敵の刃に倒れた……。</p><p>刀が赤く光った敵を先に斬れ。構えた刀と同じ向きに斬ると弾かれるぞ。</p>')
+    + (!win && !dawn && G.retries >= REDO_MAX ? (lang === 'en' ? '<p>No retries left (5 per raid).</p>' : '<p>やり直しは使い切った（1回の討ち入りで5回まで）。</p>') : '');
   const time = en ? `${mm}m ${String(ss).padStart(2, '0')}s` : `${mm}分${String(ss).padStart(2, '0')}秒`;
   const fb = G.finalBonus || { alive: allies.filter((a) => !a.down).length, allyPts: 0, timePts: 0 };
   const P_ = G.scoreParts;
@@ -1214,10 +1264,11 @@ function showResult(win, dawn = false) {
     row('やり直し', 'Retries', G.retries + (en ? '' : '回'));
   html += `<dt class="sep">${en ? 'Swordplay' : '剣技'}</dt><dd class="sep">${(P_.kill + P_.counter).toLocaleString()}</dd>` +
     row('早業', 'Speed', P_.clear.toLocaleString());
+  if (win && fb.accPts !== undefined) html += row(`太刀筋（命中 ${Math.round(fb.acc * 100)}%）`, `Accuracy (${Math.round(fb.acc * 100)}%)`, fb.accPts.toLocaleString());
   if (win) html += row(fb.alive === allies.length ? '同志（全員生還）' : '同志', fb.alive === allies.length ? 'Comrades (all alive)' : 'Comrades', fb.allyPts.toLocaleString()) +
     row('夜明けまでの余裕', 'Time to dawn', fb.timePts.toLocaleString());
   html += `<dt class="total">${en ? 'Score' : '得点'}</dt><dd class="total">${G.score.toLocaleString()}</dd>`;
-  const rank = !win ? '' : G.score >= 12000 ? '天晴れ　義士の鑑' : G.score >= 7000 ? '見事なり' : '本懐を遂げたり';
+  const rank = !win ? '' : G.score >= 17000 ? '天晴れ　義士の鑑' : G.score >= 13000 ? '見事なり' : '本懐を遂げたり';
   if (win) html += row('評価', 'Rating', T(rank));
   $('resultStats').innerHTML = html;
 
@@ -1235,7 +1286,7 @@ function showResult(win, dawn = false) {
   $('ranking').innerHTML = list.length ? `<h3>${en ? 'Ranking (this device)' : 'ランキング（この端末）'}</h3><ol>` + list.slice(0, 5).map((r, i) =>
     `<li class="${i === mine ? 'me' : ''}"><span>${r.score.toLocaleString()}</span><small>${r.win ? (en ? 'Vengeance' : '本懐') : (en ? 'Dawn' : '夜明け')} · ${Math.floor(r.time / 60)}:${String(r.time % 60).padStart(2, '0')} · ${r.d}</small></li>`).join('') + '</ol>' : '';
   // web-only:start
-  if ($('retryHere')) $('retryHere').style.display = win || dawn ? 'none' : '';
+  if ($('retryHere')) $('retryHere').style.display = win || dawn || G.retries >= REDO_MAX ? 'none' : '';
   // web-only:end
   G.lastResult = { win, dawn };
   $('result').classList.add('show');
@@ -1377,6 +1428,8 @@ document.addEventListener('visibilitychange', () => {
 
 // タイトル画面：バージョンとプライバシーポリシー、（必要な地域では）広告の設定
 if (window.APP_VERSION && window.APP_VERSION !== 'dev') $('buildInfo').textContent = window.APP_VERSION;
+// 画面下のバナー広告とボタンが重ならないよう、アプリでは下に余白を空ける
+if (Ads.available) document.body.classList.add('has-banner');
 Ads.initDone.then(() => { if (Ads.privacyOptionsRequired) $('adPrivacy').hidden = false; });
 $('adPrivacyLink').addEventListener('click', (e) => { e.preventDefault(); Ads.showPrivacyOptions(); });
 const setPrivacyUrl = () => { $('privacyLink').href = lang === 'en' ? 'https://techgym.jp/privacy-policy-en/' : 'https://techgym.jp/privacy-policy/'; };
@@ -1411,6 +1464,7 @@ function update(dt) {
   }
   updateDawn();
   G.attackCD = Math.max(0, G.attackCD - dt);
+  if (G.tired > 0) G.tired = Math.max(0, G.tired - dt);
 
   for (let i = pendingCuts.length - 1; i >= 0; i--) {
     pendingCuts[i].t -= dt;
@@ -1726,7 +1780,7 @@ function drawPopups(now) {
 }
 
 function drawOverlay() {
-  const dpr = devicePixelRatio;
+  const dpr = OVERLAY_DPR;
   octx.setTransform(dpr, 0, 0, dpr, 0, 0);
   octx.clearRect(0, 0, innerWidth, innerHeight);
   const now = performance.now();
@@ -1758,6 +1812,11 @@ function drawOverlay() {
         }
       }
       if (e.state === 'windup' && !e.feint) drawStrikeArrow(e, sr, r);
+      if (e.state === 'windup' && !e.feint && e.t < e.windup * WINDUP_OPEN) {
+        // 振りかぶり始めは隙：普通に斬れば止められる
+        octx.fillStyle = 'rgba(255,255,255,.95)'; octx.font = `800 ${Math.round(r * 0.7)}px "Shippori Mincho", serif`; octx.textAlign = 'center';
+        octx.fillText(T('隙！'), sr.x, sr.y + r * 2.4);
+      }
       if (e.state === 'windup') {
         const k = Math.min(1, e.t / e.windup);
         octx.strokeStyle = `rgba(255,${80 - 60 * k},${60 - 50 * k},${0.5 + 0.5 * k})`;
@@ -1831,12 +1890,27 @@ function drawOverlay() {
 // =====================================================================
 const clock = new THREE.Clock();
 let frameErrors = 0;
+// 動きが重い端末では解像度を自動で下げる（軽ければ少しずつ戻す）
+let frameAcc = 0, frameN = 0, frameLast = performance.now();
+function adaptResolution() {
+  const now = performance.now();
+  frameAcc += now - frameLast; frameLast = now; frameN++;
+  if (frameAcc < 2000) return;
+  const avg = frameAcc / frameN; frameAcc = 0; frameN = 0;
+  if (document.hidden || !lowEnd) return;
+  const pr = renderer.getPixelRatio();
+  let next = pr;
+  if (avg > 26 && pr > 0.6) next = Math.max(0.6, pr - 0.15);
+  else if (avg < 17 && pr < quality.pixelRatio) next = Math.min(quality.pixelRatio, pr + 0.1);
+  if (next !== pr) { renderer.setPixelRatio(next); renderer.setSize(innerWidth, innerHeight, false); }
+}
 function frame() {
   requestAnimationFrame(frame);
   const dt = Math.min(0.05, clock.getDelta());
   try { update(dt); } catch (e) { if (frameErrors++ < 5) console.error(e); }
   filmPass.uniforms.uTime.value = G.t % 100;
-  composer.render();
+  if (quality.post) composer.render(); else renderer.render(scene, camera);
+  adaptResolution();
   try { drawOverlay(); } catch (e) { if (frameErrors++ < 5) console.error(e); }
 }
 placeAtRail(0);
@@ -1888,5 +1962,16 @@ boot();
 function sim(sec, step = 1 / 30) {
   for (let t = 0; t < sec; t += step) { update(step); scene.updateMatrixWorld(); camera.updateMatrixWorld(); }
 }
-window.__ako = { fx: () => ({ strokes: strokes.length, stamps: stamps.length }), sim, G, STOPS, enemies: () => enemies, player, startGame, retryStop, camera, kira: () => kira, RAIL_TOTAL };
+// なぞる操作を再現する（テスト用）：(x0,y0)→(x1,y1) を ms ミリ秒で
+function testSwipe(x0, y0, x1, y1, ms = 90) {
+  const now = performance.now(), steps = 8;
+  onDown(x0, y0); swipe.pts[0].t = now;
+  for (let i = 1; i <= steps; i++) {
+    const pt = { x: x0 + (x1 - x0) * i / steps, y: y0 + (y1 - y0) * i / steps, t: now + ms * i / steps };
+    swipe.pts.push(pt);
+    processSegment(swipe.pts[swipe.pts.length - 2], pt);
+  }
+  onUp();
+}
+window.__ako = { swipe: testSwipe, screenOf: (v) => screenOf(v), renderer, fx: () => ({ strokes: strokes.length, stamps: stamps.length }), sim, G, STOPS, enemies: () => enemies, player, startGame, retryStop, camera, kira: () => kira, RAIL_TOTAL };
 // web-only:end
