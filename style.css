@@ -70,3 +70,10 @@ h3{font-size:15px;letter-spacing:.3em;color:var(--gold);text-align:left;margin:1
 #muteBtn{right:52px}
 body.playing #pauseBtn,body.playing #muteBtn{display:block}
 #muteBtn.off{opacity:.4;text-decoration:line-through}
+
+.lang{margin-top:18px;background:none;border:1px solid rgba(255,255,255,.35);color:#cdd6e4;font-family:inherit;font-size:13px;padding:6px 16px;cursor:pointer;border-radius:3px}
+body.en h1{letter-spacing:.02em}
+body.en h1 span{font-size:1.25em}
+body.en .btn{letter-spacing:.12em;padding:12px 30px}
+body.en #hudMsg{letter-spacing:.06em}
+body.en .loc,body.en h3,body.en .sub{letter-spacing:.06em}

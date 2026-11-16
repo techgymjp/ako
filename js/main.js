@@ -4,6 +4,7 @@ import { buildWorld, RAIL, P, roomAtWorld, clampToRoom, WALL_H } from './world.j
 import { Character, setCharacterShadows } from './characters.js';
 import * as TX from './textures.js';
 import { Sfx } from './audio.js';
+import { T, lang, setLang, applyStatic } from './i18n.js';
 import { EffectComposer } from '../vendor/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from '../vendor/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from '../vendor/addons/postprocessing/UnrealBloomPass.js';
@@ -382,15 +383,15 @@ const $ = (id) => document.getElementById(id);
 const hud = { loc: $('hudLoc'), prog: $('hudProg'), msg: $('hudMsg'), sub: $('hudSub'), combo: $('hudCombo'), hint: $('hudHint') };
 let msgTimer = 0;
 function banner(text, sub = '', dur = 2.4) {
-  hud.msg.textContent = text; hud.sub.textContent = sub;
+  hud.msg.textContent = T(text); hud.sub.textContent = T(sub);
   hud.msg.parentElement.classList.remove('show'); void hud.msg.offsetWidth;
   hud.msg.parentElement.classList.add('show');
   msgTimer = dur;
 }
-function hint(text) { hud.hint.textContent = text; hud.hint.classList.toggle('show', !!text); }
+function hint(text) { hud.hint.textContent = T(text); hud.hint.classList.toggle('show', !!text); }
 let comboTimer = 0;
 function comboText(text) {
-  hud.combo.textContent = text;
+  hud.combo.textContent = T(text);
   hud.combo.classList.remove('pop'); void hud.combo.offsetWidth; hud.combo.classList.add('pop');
   comboTimer = 1.2;
 }
@@ -612,7 +613,7 @@ function playerKilled(e) {
   G.redFlash = 1; G.camShake = 0.6; G.slowmo = 0.25;
   Sfx.cut(1); Sfx.gameover(); Sfx.groan();
   player.chestWorld(_v); emitSparks(_v, 30, 0xff2a20, 3);
-  banner('無念……', `${e.def.name || '吉良家家臣'}の刃に倒れた`, 3);
+  banner('無念……', lang === 'en' ? `Fell to the blade of ${T(e.def.name || '吉良家家臣')}` : `${e.def.name || '吉良家家臣'}の刃に倒れた`, 3);
   hint('');
   later(0.6, () => showResult(false));
 }
@@ -961,17 +962,19 @@ function finishKira() {
 function showResult(win) {
   const t = G.playTime;
   const mm = Math.floor(t / 60), ss = Math.floor(t % 60);
-  $('resultTitle').textContent = win ? '本懐成就' : '無念';
-  $('resultText').innerHTML = win
+  $('resultTitle').textContent = T(win ? '本懐成就' : '無念');
+  $('resultText').innerHTML = T(win
     ? '<p>赤穂浪士四十七士は吉良上野介を討ち取り、主君・浅野内匠頭の無念を晴らした。</p><p>一行は雪の江戸の町を、亡君の眠る<b>泉岳寺</b>へと引き揚げていった。</p>'
-    : '<p>大石内蔵助は敵の刃に倒れた……。</p><p>刀が赤く光った敵を先に斬れ。構えた刀と同じ向きに斬ると弾かれるぞ。</p>';
-  const rank = !win ? '' : G.retries === 0 && t < 240 ? '天晴れ　義士の鑑' : G.retries <= 2 ? '見事なり' : '本懐を遂げたり';
+    : '<p>大石内蔵助は敵の刃に倒れた……。</p><p>刀が赤く光った敵を先に斬れ。構えた刀と同じ向きに斬ると弾かれるぞ。</p>');
+  const rank = T(!win ? '' : G.retries === 0 && t < 240 ? '天晴れ　義士の鑑' : G.retries <= 2 ? '見事なり' : '本懐を遂げたり');
+  const en = lang === 'en';
+  const time = en ? `${mm}m ${String(ss).padStart(2, '0')}s` : `${mm}分${String(ss).padStart(2, '0')}秒`;
   $('resultStats').innerHTML =
-    `<dt>討ち入り時間</dt><dd>${mm}分${String(ss).padStart(2, '0')}秒</dd>` +
-    `<dt>斬り伏せた敵</dt><dd>${G.kills}人</dd>` +
-    `<dt>最大連斬</dt><dd>${G.maxCombo || 1}人</dd>` +
-    `<dt>やり直し</dt><dd>${G.retries}回</dd>` +
-    (win ? `<dt>評価</dt><dd>${rank}</dd>` : '');
+    `<dt>${en ? 'Time' : '討ち入り時間'}</dt><dd>${time}</dd>` +
+    `<dt>${en ? 'Enemies cut down' : '斬り伏せた敵'}</dt><dd>${G.kills}${en ? '' : '人'}</dd>` +
+    `<dt>${en ? 'Best multi-cut' : '最大連斬'}</dt><dd>${G.maxCombo || 1}${en ? '' : '人'}</dd>` +
+    `<dt>${en ? 'Retries' : 'やり直し'}</dt><dd>${G.retries}${en ? '' : '回'}</dd>` +
+    (win ? `<dt>${en ? 'Rating' : '評価'}</dt><dd>${rank}</dd>` : '');
   $('retryHere').style.display = win ? 'none' : '';
   $('result').classList.add('show');
   if (win) {
@@ -997,10 +1000,18 @@ $('retryHere').onclick = retryStop;
 $('resumeBtn').onclick = togglePause;
 $('pauseBtn').onclick = togglePause;
 $('muteBtn').onclick = () => { $('muteBtn').classList.toggle('off', Sfx.toggle()); };
-try {
-  const best = +localStorage.getItem('ako-best');
-  if (best) $('bestTime').textContent = `最速の本懐成就：${Math.floor(best / 60)}分${String(Math.floor(best % 60)).padStart(2, '0')}秒`;
-} catch (e) { /* 保存不可 */ }
+function showBest() {
+  try {
+    const best = +localStorage.getItem('ako-best');
+    if (best) {
+      const m = Math.floor(best / 60), sec = String(Math.floor(best % 60)).padStart(2, '0');
+      $('bestTime').textContent = lang === 'en' ? `Fastest vengeance: ${m}m ${sec}s` : `最速の本懐成就：${m}分${sec}秒`;
+    }
+  } catch (e) { /* 保存不可 */ }
+}
+applyStatic();
+showBest();
+$('langBtn').onclick = () => { setLang(lang === 'en' ? 'ja' : 'en'); showBest(); };
 
 // =====================================================================
 // 更新
@@ -1065,7 +1076,7 @@ function update(dt) {
 
   G.room = roomAtWorld(player.pos.x, player.pos.z);
   const roomName = G.room ? G.room.name : (player.pos.x > 50 ? '表門' : '前庭');
-  if (roomName !== G.lastRoomName) { G.lastRoomName = roomName; hud.loc.textContent = roomName; }
+  if (roomName !== G.lastRoomName) { G.lastRoomName = roomName; hud.loc.textContent = T(roomName); }
   hud.prog.style.width = (100 * G.s / RAIL_TOTAL).toFixed(1) + '%';
 
   // ---- 同志 ----
@@ -1235,7 +1246,7 @@ function drawOverlay() {
         octx.setLineDash([]);
         octx.restore();
         octx.fillStyle = 'rgba(200,225,255,.85)'; octx.font = `bold ${Math.round(r * 0.5)}px "Shippori Mincho", serif`;
-        octx.textAlign = 'center'; octx.fillText('受', sr.x + r * 1.1, sr.y - r * 1.4);
+        octx.textAlign = 'center'; octx.fillText(T('受'), sr.x + r * 1.1, sr.y - r * 1.4);
       }
       if (e.state === 'windup') {
         const k = Math.min(1, e.t / e.windup);
@@ -1247,7 +1258,7 @@ function drawOverlay() {
       }
       if (e.def.name) {
         octx.fillStyle = 'rgba(255,240,220,.9)'; octx.font = `bold ${Math.max(12, Math.round(r * 0.45))}px "Shippori Mincho", serif`; octx.textAlign = 'center';
-        octx.fillText(e.def.name, sr.x, sr.y - r * 2.9);
+        octx.fillText(T(e.def.name), sr.x, sr.y - r * 2.9);
         // 体力
         for (let i = 0; i < e.maxHp; i++) {
           octx.fillStyle = i < e.hp ? '#e33' : 'rgba(255,255,255,.2)';
@@ -1261,7 +1272,7 @@ function drawOverlay() {
       octx.strokeStyle = 'rgba(255,220,120,.8)'; octx.lineWidth = 2;
       octx.beginPath(); octx.arc(sr.x, sr.y, Math.max(sr.r, 30) * 1.8 * pulse, 0, Math.PI * 2); octx.stroke();
       octx.fillStyle = 'rgba(255,240,220,.95)'; octx.font = 'bold 18px "Shippori Mincho", serif'; octx.textAlign = 'center';
-      octx.fillText('吉良上野介', sr.x, sr.y - Math.max(sr.r, 30) * 2.3);
+      octx.fillText(T('吉良上野介'), sr.x, sr.y - Math.max(sr.r, 30) * 2.3);
     }
   }
 
