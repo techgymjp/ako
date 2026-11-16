@@ -30,6 +30,7 @@ body.playing #hud{display:block}
   white-space:pre-line;text-align:center;font-size:14px;line-height:1.7;background:rgba(0,0,0,.55);
   border:1px solid rgba(255,255,255,.2);padding:8px 14px;opacity:0;transition:opacity .4s}
 #hudHint.show{opacity:1}
+@media (max-width:520px){#hudHint{font-size:12px;bottom:14px;padding:6px 10px;line-height:1.6}}
 
 /* 画面 */
 .overlay{position:fixed;inset:0;display:none;align-items:center;justify-content:center;
@@ -55,6 +56,9 @@ h2{font-size:clamp(28px,6vw,44px);margin:0 0 14px;letter-spacing:.2em}
   box-shadow:0 0 0 4px var(--red),0 6px 20px rgba(0,0,0,.6)}
 .btn.ghost{background:transparent;box-shadow:none;border-color:rgba(255,255,255,.5)}
 .btn:hover{filter:brightness(1.15)}
+.lead{font-size:clamp(15px,3.6vw,19px);line-height:1.9;margin:0 0 26px;color:#e8dcc4;text-shadow:0 2px 6px #000}
+h3{font-size:15px;letter-spacing:.3em;color:var(--gold);text-align:left;margin:14px 0 6px}
+.btn.small{font-size:15px;padding:8px 22px 8px 28px;margin-top:14px}
 .best{color:#9fb0c8;font-size:13px;min-height:1em}
 .stats{display:grid;grid-template-columns:auto auto;gap:4px 18px;justify-content:center;margin:0 0 20px;font-size:16px}
 .stats dt{color:#9fb0c8;text-align:right}

@@ -14,9 +14,11 @@ function geos() {
   G.foot = new THREE.BoxGeometry(0.1, 0.06, 0.25).translate(0, -0.9, 0.04);
   G.chest = new THREE.CylinderGeometry(0.205, 0.2, 0.82, 18, 1).translate(0, 0.2, 0);
   G.obi = new THREE.CylinderGeometry(0.2, 0.2, 0.09, 18).translate(0, 0.02, 0);
-  G.sleeve = new THREE.CylinderGeometry(0.065, 0.13, 0.54, 12, 1, true).translate(0, -0.27, 0);
-  G.forearm = new THREE.CylinderGeometry(0.035, 0.04, 0.2, 8).translate(0, -0.5, 0);
-  G.hand = new THREE.SphereGeometry(0.047, 10, 8).translate(0, -0.61, 0);
+  G.upperSleeve = new THREE.CylinderGeometry(0.075, 0.095, 0.32, 12, 1, true).translate(0, -0.15, 0);
+  G.lowerSleeve = new THREE.CylinderGeometry(0.09, 0.13, 0.2, 12, 1, true).translate(0, -0.08, 0);
+  G.tamoto = new THREE.BoxGeometry(0.03, 0.26, 0.2).translate(0, -0.16, -0.06);
+  G.forearm = new THREE.CylinderGeometry(0.034, 0.04, 0.16, 8).translate(0, -0.2, 0);
+  G.hand = new THREE.SphereGeometry(0.045, 10, 8).scale(0.9, 1.2, 1).translate(0, -0.29, 0);
   G.neck = new THREE.CylinderGeometry(0.048, 0.056, 0.14, 10).translate(0, 0.6, 0);
   G.head = new THREE.SphereGeometry(0.112, 28, 20);
   G.hoodCap = new THREE.SphereGeometry(0.126, 22, 12, 0, Math.PI * 2, 0, Math.PI * 0.5);
@@ -80,7 +82,23 @@ function mesh(geo, material, parent, cast = true) {
 
 // ポーズ計算に使う定数（胴体ローカル座標：原点＝腰、+Z前、+Y上、+X左）
 const SH_L = V(0.2, 0.5, 0), SH_R = V(-0.2, 0.5, 0);
-const ARM_LEN = 0.6;
+const UPPER = 0.29, LOWER = 0.29;
+const POLE_R = V(-0.7, -0.8, -0.35), POLE_L = V(0.7, -0.8, -0.35);
+const _a = V(), _b = V(), _c = V(), _d = V(), _e = V(), _f = V(), _q = new THREE.Quaternion();
+const newPose = () => ({ grip: V(), dir: V(0, 1, 0), yaw: 0, pitch: 0, roll: 0, drop: 0, stepF: 0, spread: 0, headYaw: 0 });
+const _p1 = newPose(), _p2 = newPose();
+function clonePose(p) { const o = newPose(); o.grip.copy(p.grip); o.dir.copy(p.dir); for (const k of ['yaw', 'pitch', 'roll', 'drop', 'stepF', 'spread', 'headYaw']) o[k] = p[k]; return o; }
+function blendPose(a, b, k, out) {
+  out.grip.lerpVectors(a.grip, b.grip, k);
+  const ad = _a.copy(a.dir), bd = _b.copy(b.dir);
+  out.dir.lerpVectors(ad, bd, k);
+  if (out.dir.lengthSq() < 1e-4) out.dir.copy(bd);
+  out.dir.normalize();
+  for (const key of ['yaw', 'pitch', 'roll', 'drop', 'stepF', 'spread', 'headYaw']) out[key] = a[key] + (b[key] - a[key]) * k;
+  return out;
+}
+const easeOut = (x) => 1 - (1 - x) * (1 - x);
+const easeInOut = (x) => (x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);
 
 export class Character {
   constructor(type, opts = {}) {
@@ -129,14 +147,22 @@ export class Character {
       const knot = mesh(G.topknot, hair, this.head); knot.position.set(0, 0.125, -0.005);
     }
 
-    // 腕（袖＋手）
-    this.armL = new THREE.Group(); this.armL.position.copy(SH_L); this.torso.add(this.armL);
-    this.armR = new THREE.Group(); this.armR.position.copy(SH_R); this.torso.add(this.armR);
-    for (const arm of [this.armL, this.armR]) {
-      mesh(G.sleeve, sleeveMat, arm);
-      mesh(G.forearm, skin, arm);
-      mesh(G.hand, skin, arm);
-    }
+    // 腕（上腕＋肘から先。2関節IKで肘を曲げる）
+    const upperMat = type === 'oishi' || type === 'ronin' ? mat('upperRonin', () => std({ color: '#16171b', roughness: 0.9, side: THREE.DoubleSide })) : sleeveMat;
+    const mkArm = (pos) => {
+      const arm = new THREE.Group(); arm.position.copy(pos); this.torso.add(arm);
+      const upper = new THREE.Group(); arm.add(upper);
+      mesh(G.upperSleeve, upperMat, upper);
+      const elbow = new THREE.Group(); elbow.position.y = -UPPER; upper.add(elbow);
+      mesh(G.lowerSleeve, sleeveMat, elbow);
+      mesh(G.tamoto, upperMat, elbow);
+      mesh(G.forearm, skin, elbow);
+      mesh(G.hand, skin, elbow);
+      arm.userData = { upper, elbow };
+      return arm;
+    };
+    this.armL = mkArm(SH_L);
+    this.armR = mkArm(SH_R);
 
     // 武器
     this.weaponType = opts.weapon || (type === 'kira' ? 'none' : 'katana');
@@ -155,8 +181,9 @@ export class Character {
       this.weapon.visible = false;
     }
     if (type !== 'kira') {
-      const saya = mesh(G.saya, mat('saya', () => std({ color: '#0d0c0c', roughness: 0.35, metalness: 0.2 })), this.torso);
-      saya.position.set(0.21, 0.08, 0.1); saya.rotation.set(1.85, 0, 0.25);
+      // 鞘は腰（左腰に差して後ろ下がり）
+      const saya = mesh(G.saya, mat('saya', () => std({ color: '#0d0c0c', roughness: 0.35, metalness: 0.2 })), this.hips);
+      saya.position.set(0.2, 0.06, 0.14); saya.rotation.set(1.2, 0, 0.12);
     }
 
     if (opts.lantern) {
@@ -177,9 +204,11 @@ export class Character {
     this.slashL = V(1, 0, 0);
     this.guardAngle = 0;
     this.hitT = 0; this.flash = 0; this.deadT = 0; this.deadDir = 1;
-    this.lunge = 0;
-    this._grip = V(); this._dir = V();
+    this.swinging = false;
     this.facingYaw = 0;
+    // 現在の姿勢（胴体ローカル）：grip=柄の中心, dir=刀身の向き
+    this.cur = { grip: V(-0.02, 0.25, 0.36), dir: V(0, 0.75, 1).normalize(), yaw: 0, pitch: 0.05, roll: 0, drop: 0.01, stepF: 0.2, spread: 0.06, headYaw: 0 };
+    this.from = null;
   }
 
   setPosition(x, z) { this.root.position.set(x, 0, z); }
@@ -194,9 +223,10 @@ export class Character {
   }
   setYaw(y) { this.facingYaw = y; this.root.rotation.y = y; }
 
-  // slash: L = 胴体ローカルの斬撃方向ベクトル（x:左+,y:上+）
-  startSlash(lx, ly, dur = 0.26) {
+  // 斬撃：L = 胴体ローカルの斬る方向（x:左+, y:上+）。dur = 振りかぶり〜戻りまでの全体時間
+  startSlash(lx, ly, dur = 0.56) {
     this.slashL.set(lx, ly, 0).normalize();
+    this.from = clonePose(this.cur);
     this.mode = 'slash'; this.modeT = 0; this.modeDur = dur;
   }
   setMode(m, dur = 0) { if (this.mode !== m) { this.mode = m; this.modeT = 0; } this.modeDur = dur; }
@@ -204,139 +234,191 @@ export class Character {
   hit() { this.hitT = 0.3; this.flash = 0.25; }
   die(dir = 1) { this.mode = 'dead'; this.modeT = 0; this.deadDir = dir; }
 
+  // 斬撃の軌道上の姿勢（u: 0=振りかぶり頂点 → 1=振り抜き）
+  swingPose(u, out) {
+    const L = this.slashL;
+    // 手元の軌道：振りかぶり側 → 前へ伸ばす → 振り抜いた側（二次ベジェ）
+    const hs = V(0, 0.5, 0.2).addScaledVector(L, -0.42);
+    const hm = V(0, 0.42, 0.55);
+    const he = V(0, 0.4, 0.36).addScaledVector(L, 0.34);
+    const a = (1 - u) * (1 - u), b = 2 * u * (1 - u), c = u * u;
+    out.grip.set(0, 0, 0).addScaledVector(hs, a).addScaledVector(hm, b).addScaledVector(he, c);
+    // 刀身は手首を支点に大きく回る：後ろ（振りかぶり）→ 正面 → 斬り下ろした先
+    const th = THREE.MathUtils.lerp(-0.5, Math.PI - 0.38, u);
+    out.dir.set(0, 0, 0).addScaledVector(L, -Math.cos(th)).add(V(0, 0, Math.sin(th)));
+    if (Math.abs(L.y) < 0.5) out.dir.y += 0.08; // 横薙ぎは刃筋をやや水平に保つ
+    out.dir.normalize();
+    const k = u * 2 - 1; // -1 → 1
+    out.yaw = L.x * 0.55 * k;                 // 腰の捻り
+    out.pitch = 0.1 - L.y * 0.22 * k;         // 振り下ろしで前傾
+    out.roll = -L.x * L.y * 0.12 * k;
+    // 横薙ぎほど足を大きく開き、腰を深く落とす
+    const horiz = Math.max(0, 1 - Math.abs(L.y) * 1.4);
+    const sink = Math.min(1, 0.45 + u * 0.8);
+    out.drop = 0.02;
+    out.stepF = 0.25 + 0.35 * u + horiz * 0.36 * sink;   // 右足を踏み込む
+    out.spread = horiz * 0.34 * sink;                    // 左右への開き
+    out.pitch += horiz * 0.12 * sink;
+    out.headYaw = -out.yaw * 0.8;             // 視線は相手に残す
+    return out;
+  }
+
+  targetPose(out) {
+    const b = Math.sin(this.phase * 0.5) * 0.012;
+    out.yaw = 0; out.pitch = 0.05; out.roll = 0; out.drop = 0.01; out.stepF = 0.2; out.spread = 0.06; out.headYaw = 0;
+    switch (this.mode) {
+      case 'sheathed':
+        out.grip.set(-0.2, -0.05, 0.12); out.dir.set(-0.1, -0.2, 1).normalize(); out.stepF = 0; out.drop = 0;
+        break;
+      case 'guard': {
+        // 受けの構え：刀身を guardAngle の向きに（+X=相手から見て画面右）
+        const lx = Math.cos(this.guardAngle), ly = Math.sin(this.guardAngle);
+        out.dir.set(lx, ly, 0.25).normalize();
+        out.grip.set(-lx * 0.28, 0.46 - ly * 0.26, 0.4);
+        out.pitch = 0.1;
+        break;
+      }
+      case 'windup':
+        // 上段に振りかぶる
+        out.grip.set(0, 0.86, 0.16); out.dir.set(0, 0.85, -0.5).normalize();
+        out.pitch = -0.1; out.drop = 0.05; out.stepF = 0.3;
+        if (this.weaponType === 'spear') { out.grip.set(-0.08, 0.3, 0.02); out.dir.set(0, 0.08, 1).normalize(); out.stepF = 0.35; }
+        break;
+      case 'cower':
+        out.grip.set(0, 0.75, 0.25); out.dir.set(0, 1, 0.3).normalize();
+        break;
+      case 'dead':
+        out.grip.set(-0.35, 0.1, 0.2); out.dir.set(-0.6, -0.2, 0.8).normalize(); out.stepF = 0;
+        break;
+      case 'ready': default:
+        // 中段の構え：剣先は相手の喉元、膝を軽く曲げ右足を前に
+        out.grip.set(-0.02, 0.24 + b, 0.36); out.dir.set(0, 0.62, 1).normalize();
+        if (this.weaponType === 'spear') { out.grip.set(-0.08, 0.22, 0.22); out.dir.set(0, 0.12, 1).normalize(); }
+        if (this.walk > 0.3) { out.stepF = 0; out.drop = 0; }
+        break;
+    }
+    return out;
+  }
+
   update(dt) {
     this.modeT += dt;
     this.phase += dt * (4 + this.walk * 7);
     this.hitT = Math.max(0, this.hitT - dt);
     this.flash = Math.max(0, this.flash - dt);
+    this.swinging = false;
 
-    const w = this.walk;
-    const sw = Math.sin(this.phase) * 0.55 * w;
-    this.legL.rotation.set(sw, 0, 0); this.legR.rotation.set(-sw, 0, 0);
-    this.hips.position.y = 0.95 - Math.abs(Math.cos(this.phase)) * 0.03 * w;
-    this.body.position.set(0, 0, 0); this.body.rotation.set(0, 0, 0);
-    this.torso.rotation.set(0.06 * w, 0, 0);
-    this.head.rotation.set(0, 0, 0);
-
-    const grip = this._grip, dir = this._dir;
-    let handOff = 0.13, hideWeapon = false, cower = false;
-    const C = tmpV2.set(0, 0.42, 0);
-
-    switch (this.mode) {
-      case 'sheathed': {
-        grip.set(-0.2, -0.05, 0.12); dir.set(-0.1, -0.2, 1).normalize(); hideWeapon = this.type !== 'kira';
-        break;
+    const cur = this.cur;
+    if (this.mode === 'slash') {
+      // 振りかぶり 16% → 斬り込み 22% → 残心 32% → 構えに戻る 30%
+      const t = Math.min(1, this.modeT / this.modeDur);
+      const T1 = 0.16, T2 = 0.38, T3 = 0.7;
+      if (t < T1) {
+        const k = easeOut(t / T1);
+        blendPose(this.from || cur, this.swingPose(0, _p1), k, cur);
+      } else if (t < T2) {
+        this.swinging = true;
+        const u = easeInOut((t - T1) / (T2 - T1));
+        this.swingPose(u, cur);
+      } else if (t < T3) {
+        this.swingPose(1, cur);
+        cur.drop += 0.01 * Math.sin((t - T2) / (T3 - T2) * Math.PI);
+      } else {
+        const k = easeInOut((t - T3) / (1 - T3));
+        const saved = this.mode; this.mode = 'ready';
+        this.targetPose(_p2); this.mode = saved;
+        blendPose(this.swingPose(1, _p1), _p2, k, cur);
       }
-      case 'ready': default: {
-        // 中段の構え（呼吸で少し揺れる）
-        const b = Math.sin(this.phase * 0.5) * 0.015;
-        grip.set(-0.02, 0.27 + b, 0.33); dir.set(0, 0.8, 1).normalize();
-        if (this.weaponType === 'spear') { grip.set(-0.08, 0.2, 0.2); dir.set(0, 0.12, 1).normalize(); }
-        break;
-      }
-      case 'guard': {
-        // 受けの構え：刀身を guardAngle の向きに（敵ローカル：+X=画面右）
-        const a = this.guardAngle;
-        const lx = Math.cos(a), ly = Math.sin(a);
-        dir.set(lx, ly, 0.22).normalize();
-        grip.set(C.x - lx * 0.3, C.y + 0.02 - ly * 0.3, 0.42);
-        this.torso.rotation.x = 0.1;
-        break;
-      }
-      case 'windup': {
-        // 振りかぶり（上段）。刀が赤く光る
-        const k = Math.min(1, this.modeT / 0.25);
-        grip.set(-0.02, 0.27 + 0.68 * k, 0.33 - 0.25 * k);
-        dir.set(0, 0.8 - 0.1 * k, 1 - 1.75 * k).normalize();
-        if (this.weaponType === 'spear') { grip.set(-0.08, 0.25, 0.2 - 0.25 * k); dir.set(0, 0.1, 1).normalize(); }
-        this.torso.rotation.x = -0.12 * k;
-        break;
-      }
-      case 'slash': {
-        const t = Math.min(1, this.modeT / this.modeDur);
-        // 溜め→振り抜き→残心
-        let s;
-        if (t < 0.15) s = -1;
-        else if (t < 0.6) { const u = (t - 0.15) / 0.45; s = -1 + 2 * (1 - Math.pow(1 - u, 3)); }
-        else s = 1;
-        const L = this.slashL;
-        const reach = 0.95;
-        const tip = tmpV.set(L.x * reach * s, 0.45 + L.y * reach * s, 0.5 + 0.48 * (1 - s * s));
-        const base = V(0, 0.5, -0.12);
-        dir.copy(tip).sub(base).normalize();
-        grip.copy(tip).addScaledVector(dir, -0.88);
-        if (this.weaponType === 'spear') { grip.set(-0.05, 0.25, 0.2 + 0.5 * Math.sin(Math.min(1, t * 2) * Math.PI)); dir.set(0, 0.05, 1).normalize(); }
-        this.torso.rotation.y = L.x * s * 0.55;
-        this.torso.rotation.x = 0.12 - L.y * s * 0.22;
-        // 踏み込み
-        const st = Math.sin(Math.min(1, t * 1.6) * Math.PI);
-        this.legL.rotation.x = -0.55 * st; this.legR.rotation.x = 0.45 * st;
-        this.hips.position.y -= 0.06 * st;
-        if (t >= 1) { this.mode = 'ready'; this.modeT = 0; }
-        break;
-      }
-      case 'cower': {
-        cower = true;
-        const k = Math.min(1, this.modeT / 0.6);
-        this.hips.position.y = 0.95 - 0.5 * k;
-        this.legL.rotation.x = -1.5 * k; this.legR.rotation.x = -1.5 * k;
-        this.torso.rotation.x = 0.35 * k + Math.sin(this.phase * 3) * 0.02;
-        this.head.rotation.x = 0.3 * k;
-        grip.set(0, 0.75, 0.25); dir.set(0, 1, 0.3).normalize();
-        hideWeapon = true;
-        break;
-      }
-      case 'dead': {
-        const k = Math.min(1, this.modeT / 0.7);
-        const e = 1 - Math.pow(1 - k, 2);
-        this.body.rotation.x = -this.deadDir * 1.45 * e;
-        this.body.position.y = 0.12 * e;
-        this.legL.rotation.x = 0.3 * e; this.legR.rotation.x = -0.2 * e;
-        grip.set(-0.35, 0.1, 0.2); dir.set(-0.6, -0.2, 0.8).normalize();
-        break;
-      }
+      if (t >= 1) { this.mode = 'ready'; this.modeT = 0; }
+    } else {
+      this.targetPose(_p1);
+      const k = 1 - Math.exp(-dt * (this.mode === 'windup' ? 9 : this.mode === 'dead' ? 6 : 12));
+      blendPose(cur, _p1, k, cur);
     }
 
-    // 被弾時ののけぞり
+    // ---- 下半身 ----
+    const w = this.walk;
+    const sw = Math.sin(this.phase) * 0.55 * w;
+    const st = cur.stepF * (1 - w);
+    const sp = 0.04 + cur.spread * (1 - w);
+    this.legL.rotation.set(sw + st * 0.9, 0, sp);
+    this.legR.rotation.set(-sw - st, 0, -sp);
+    // 足の開きに合わせて腰の高さを決める（足裏が地面に着くように）
+    const ext = Math.max(Math.cos(this.legL.rotation.x) * Math.cos(sp), Math.cos(this.legR.rotation.x) * Math.cos(sp));
+    this.hips.position.y = Math.min(0.95 - Math.abs(Math.cos(this.phase)) * 0.03 * w, 0.09 + 0.86 * ext) - cur.drop;
+    this.body.position.set(0, 0, 0); this.body.rotation.set(0, 0, 0);
+    this.hips.rotation.y = cur.yaw * 0.4;
+
+    // ---- 上半身 ----
+    this.torso.rotation.set(cur.pitch + 0.06 * w, cur.yaw * 0.6, cur.roll);
+    this.head.rotation.set(-cur.pitch * 0.5, cur.headYaw, -cur.roll * 0.5);
+
+    let hideWeapon = false, cower = false;
+    if (this.mode === 'sheathed') hideWeapon = this.type !== 'kira';
+    if (this.mode === 'cower') {
+      cower = true; hideWeapon = true;
+      const k = Math.min(1, this.modeT / 0.6);
+      this.hips.position.y = 0.95 - 0.5 * k;
+      this.legL.rotation.x = -1.5 * k; this.legR.rotation.x = -1.5 * k;
+      this.torso.rotation.x = 0.35 * k + Math.sin(this.phase * 3) * 0.02;
+      this.head.rotation.x = 0.3 * k;
+    }
+    if (this.mode === 'dead') {
+      const k = Math.min(1, this.modeT / 0.7);
+      const e = 1 - Math.pow(1 - k, 2);
+      this.body.rotation.x = -this.deadDir * 1.45 * e;
+      this.body.position.y = 0.12 * e;
+      this.legL.rotation.x = 0.3 * e; this.legR.rotation.x = -0.2 * e;
+    }
     if (this.hitT > 0 && this.mode !== 'dead') {
       const k = this.hitT / 0.3;
       this.torso.rotation.x -= 0.4 * k;
       this.body.position.z = -0.15 * k;
     }
 
-    // 武器の配置
+    // ---- 刀と両手 ----
+    const grip = cur.grip, dir = cur.dir;
     if (this.weaponType !== 'none') {
       this.weapon.visible = !hideWeapon;
       this.weapon.position.copy(grip);
-      tmpQ.setFromUnitVectors(UP, dir);
-      this.weapon.quaternion.copy(tmpQ);
+      this.weapon.quaternion.setFromUnitVectors(UP, dir);
     }
-
-    // 腕を握り位置へ向ける
-    const handR = tmpV.copy(grip);
     if (cower) {
-      this.aimArm(this.armR, V(-0.1, 0.78, 0.28));
-      this.aimArm(this.armL, V(0.1, 0.8, 0.28));
+      this.ik(this.armR, V(-0.08, 0.8, 0.26), POLE_R);
+      this.ik(this.armL, V(0.08, 0.82, 0.26), POLE_L);
     } else if (this.weaponType === 'none' || hideWeapon) {
-      this.aimArm(this.armR, V(-0.26, -0.05, 0.08));
-      this.aimArm(this.armL, V(0.26, -0.05, 0.08));
+      this.ik(this.armR, V(-0.25, 0.0, 0.1), POLE_R);
+      this.ik(this.armL, V(0.25, 0.0, 0.1), POLE_L);
+    } else if (this.weaponType === 'spear') {
+      this.ik(this.armR, V().copy(grip).addScaledVector(dir, -0.1), POLE_R);
+      this.ik(this.armL, V().copy(grip).addScaledVector(dir, 0.35), POLE_L);
     } else {
-      this.aimArm(this.armR, handR);
-      const handL = V().copy(grip).addScaledVector(dir, -handOff);
-      this.aimArm(this.armL, handL);
+      // 右手は鍔元、左手は柄頭
+      this.ik(this.armR, V().copy(grip).addScaledVector(dir, 0.06), POLE_R);
+      this.ik(this.armL, V().copy(grip).addScaledVector(dir, -0.085), POLE_L);
     }
-    if (this.lantern) {
-      this.lantern.position.set(0.32, 0.05, 0.25);
-    }
-
+    if (this.lantern) this.lantern.position.set(0.32, 0.05, 0.25);
   }
 
-  aimArm(arm, target) {
-    const d = V().copy(target).sub(arm.position);
-    const len = d.length();
-    d.normalize();
-    arm.quaternion.setFromUnitVectors(DOWN, d);
-    arm.scale.y = THREE.MathUtils.clamp(len / ARM_LEN, 0.55, 1.15);
+  // 2関節IK（肩→肘→手）。pole は肘を向ける方向
+  ik(arm, target, pole) {
+    const { upper, elbow } = arm.userData;
+    const S = arm.position;
+    const toT = _a.copy(target).sub(S);
+    let d = toT.length();
+    d = THREE.MathUtils.clamp(d, 0.08, UPPER + LOWER - 0.002);
+    toT.normalize();
+    const cosA = (UPPER * UPPER + d * d - LOWER * LOWER) / (2 * UPPER * d);
+    const sinA = Math.sqrt(Math.max(0, 1 - cosA * cosA));
+    const perp = _b.copy(pole).addScaledVector(toT, -pole.dot(toT));
+    if (perp.lengthSq() < 1e-6) perp.set(0, -1, 0);
+    perp.normalize();
+    const E = _c.copy(toT).multiplyScalar(cosA * UPPER).addScaledVector(perp, sinA * UPPER); // 肩からの肘位置
+    const T = _d.copy(toT).multiplyScalar(d);
+    const upDir = _e.copy(E).normalize();
+    const loDir = _f.copy(T).sub(E).normalize();
+    upper.quaternion.setFromUnitVectors(DOWN, upDir);
+    _q.setFromUnitVectors(DOWN, loDir);
+    elbow.quaternion.copy(upper.quaternion).invert().multiply(_q);
   }
 
   // 刀の切っ先のワールド座標

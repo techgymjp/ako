@@ -29,19 +29,38 @@
   <div class="panel">
     <p class="sub">元禄十五年十二月十四日　雪の夜</p>
     <h1><span>忠臣蔵</span>赤穂浪士の討ち入り</h1>
+    <p class="lead">大石内蔵助となり、吉良邸へ討ち入れ。<br>狙うは吉良上野介ただ一人。</p>
+    <button id="startBtn" class="btn">討ち入り</button><br>
+    <button id="howtoBtn" class="btn ghost small">遊び方</button>
+    <p class="best" id="bestTime"></p>
+  </div>
+</section>
+
+<!-- 遊び方 -->
+<section id="howto" class="overlay">
+  <div class="panel">
+    <h2>遊び方</h2>
+    <h3>あらすじ</h3>
     <div class="story">
       <p>元禄十四年三月、江戸城松之大廊下。赤穂藩主・浅野内匠頭は高家・吉良上野介に斬りかかり、即日切腹を命じられた。吉良にお咎めはなかった。</p>
       <p>それから一年九ヶ月——。筆頭家老・<b>大石内蔵助</b>は赤穂浪士を率い、本所松坂町の吉良邸へ討ち入る。</p>
-      <p>表門から屋敷の奥へ。立ちはだかる家臣を斬り伏せ、<b>吉良上野介</b>を討て。</p>
     </div>
+    <h3>進み方</h3>
+    <div class="story">
+      <p>大石は表門から屋敷の奥へ<b>自動で進みます</b>。玄関・槍の間・広間・奥の間・上野介寝所を抜け、最後に炭部屋に潜む<b>吉良上野介</b>を斬れば本懐成就です。</p>
+    </div>
+    <h3>操作</h3>
     <div class="howto">
-      <div><b>斬る</b><span>敵の身体をなぞるように<em>フリック</em>。なぞった向きに刀を振る</span></div>
+      <div><b>斬る</b><span>敵の身体をなぞるように<em>フリック</em>（マウスはドラッグ）。なぞった向きに刀を振る</span></div>
+      <div><b>斬り方</b><span>横へ＝横一文字　上から下＝唐竹割り　下から上＝斬り上げ　斜め＝袈裟斬り</span></div>
       <div><b>連斬</b><span>一振りで複数の敵をなぞれば二人斬り・三人斬り</span></div>
-      <div><b>受け</b><span>刀を構えた敵は、<em>その刀と同じ向き</em>に斬ると弾かれる</span></div>
-      <div><b>一太刀</b><span>刀が<em>赤く光った</em>敵は斬りかかってくる。斬られたら終わり</span></div>
+      <div><b>剛斬</b><span>素早く大きくフリックすると、強敵にも深手を負わせる</span></div>
+      <div><b>受け</b><span>刀を構えた敵に出る点線と「受」。<em>その向きと同じ向き</em>に斬ると弾かれ、反撃が来る</span></div>
+      <div><b>一太刀</b><span>刀が<em>赤く光り</em>、赤い輪が縮んだら斬りかかってくる合図。斬られたら終わり</span></div>
+      <div><b>キーボード</b><span>矢印キー（WASD）で一番近い敵をその向きに斬る。Esc／Pで一時停止</span></div>
+      <div><b>やり直し</b><span>倒れても「この場から」でその戦いからやり直せる</span></div>
     </div>
-    <button id="startBtn" class="btn">討ち入り</button>
-    <p class="best" id="bestTime"></p>
+    <button id="howtoBack" class="btn">戻る</button>
   </div>
 </section>
 

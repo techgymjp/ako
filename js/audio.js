@@ -13,8 +13,84 @@ export const Sfx = {
       } catch (e) { this.ctx = null; }
     }
     if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume();
+    if ('speechSynthesis' in window) speechSynthesis.getVoices();
   },
-  toggle() { this.muted = !this.muted; if (this.master) this.master.gain.value = this.muted ? 0 : 0.8; return this.muted; },
+  toggle() { this.muted = !this.muted; if (this.master) this.master.gain.value = this.muted ? 0 : 0.8; if (this.muted && 'speechSynthesis' in window) speechSynthesis.cancel(); return this.muted; },
+  music(name) { Music.play(this, name); },
+  // ---- 人の声（フォルマント合成による叫び声） ----
+  // vowels: 母音の並び、f0: 声の高さ [開始, 終了]
+  voice(vowels, dur, f0a, f0b, vol = 0.5, rough = 0.4, delay = 0) {
+    if (!this.ctx || this.muted) return;
+    const ctx = this.ctx, t = this.now() + delay;
+    const src = ctx.createOscillator(); src.type = 'sawtooth';
+    src.frequency.setValueAtTime(f0a, t);
+    src.frequency.linearRampToValueAtTime(f0a + (f0b - f0a) * 0.3 + 15, t + dur * 0.25);
+    src.frequency.exponentialRampToValueAtTime(f0b, t + dur);
+    // 声のゆらぎ
+    const jit = ctx.createOscillator(); jit.frequency.value = 7 + Math.random() * 4;
+    const jg = ctx.createGain(); jg.gain.value = f0a * 0.03; jit.connect(jg); jg.connect(src.frequency);
+    // 叫びの荒れ（歪み）
+    const sh = ctx.createWaveShaper(); sh.curve = this.shoutCurve || (this.shoutCurve = (() => { const c = new Float32Array(256); for (let i = 0; i < 256; i++) { const x = i / 128 - 1; c[i] = Math.tanh(x * 3); } return c; })());
+    const pre = ctx.createGain(); pre.gain.value = 0.6 + rough;
+    src.connect(pre); pre.connect(sh);
+    // 息の成分
+    const nz = ctx.createBufferSource(); nz.buffer = this.noiseBuf;
+    const nzg = ctx.createGain(); nzg.gain.value = 0.25 + rough * 0.4;
+    nz.connect(nzg);
+    const out = ctx.createGain();
+    out.gain.setValueAtTime(0.0001, t);
+    out.gain.exponentialRampToValueAtTime(vol, t + 0.03);
+    out.gain.setValueAtTime(vol, t + dur * 0.7);
+    out.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    // 3つのフォルマント
+    const V = { a: [750, 1200, 2600], i: [300, 2200, 3000], u: [330, 1300, 2400], e: [500, 1850, 2550], o: [520, 880, 2500], n: [280, 1000, 2300] };
+    const amps = [1, 0.55, 0.25];
+    for (let k = 0; k < 3; k++) {
+      const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = k === 0 ? 6 : 9;
+      vowels.split('').forEach((vw, i) => {
+        const tt = t + dur * (vowels.length === 1 ? 0 : i / (vowels.length - 1)) * 0.75;
+        if (i === 0) bp.frequency.setValueAtTime(V[vw][k], tt); else bp.frequency.linearRampToValueAtTime(V[vw][k], tt);
+      });
+      const g = ctx.createGain(); g.gain.value = amps[k] * 2.2;
+      sh.connect(bp); nzg.connect(bp); bp.connect(g); g.connect(out);
+    }
+    out.connect(this.master);
+    src.start(t); jit.start(t); nz.start(t, Math.random());
+    src.stop(t + dur + 0.05); jit.stop(t + dur + 0.05); nz.stop(t + dur + 0.05);
+  },
+  // 掛け声（大石）
+  kiai(strong) {
+    const v = [['ei', 0.26, 170, 210], ['ia', 0.3, 160, 190], ['ea', 0.28, 175, 150], ['ou', 0.24, 150, 180]][Math.floor(Math.random() * 4)];
+    this.voice(v[0], strong ? v[1] + 0.12 : v[1], v[2], v[3], strong ? 0.6 : 0.42, strong ? 0.7 : 0.45);
+  },
+  // 斬られた悲鳴
+  cry(old) {
+    const r = Math.random();
+    if (old) { this.voice('ia', 0.7, 260, 180, 0.45, 0.6); return; }
+    const v = r < 0.33 ? ['ua', 0.55, 190, 95] : r < 0.66 ? ['oa', 0.5, 210, 100] : ['ao', 0.45, 175, 90];
+    this.voice(v[0], v[1] * (0.9 + Math.random() * 0.3), v[2] * (0.85 + Math.random() * 0.3), v[3], 0.5, 0.75);
+  },
+  // 斬りかかる敵の怒声
+  roar() {
+    const v = Math.random() < 0.5 ? ['oa', 0.42, 130, 175] : ['ia', 0.38, 140, 185];
+    this.voice(v[0], v[1], v[2] * (0.9 + Math.random() * 0.2), v[3], 0.4, 0.8);
+  },
+  groan() { this.voice('uo', 0.9, 140, 70, 0.45, 0.6); },
+  // 台詞（ブラウザの日本語音声合成）
+  say(text, { pitch = 0.6, rate = 1.15, volume = 1 } = {}) {
+    if (this.muted || !('speechSynthesis' in window)) return;
+    try {
+      const ss = window.speechSynthesis;
+      const voices = ss.getVoices();
+      const ja = voices.filter((v) => /^ja/i.test(v.lang));
+      if (!ja.length) return;
+      const male = ja.find((v) => /otoya|ichiro|keita|male|男/i.test(v.name)) || ja[0];
+      ss.cancel();
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang = 'ja-JP'; u.voice = male; u.pitch = pitch; u.rate = rate; u.volume = volume;
+      ss.speak(u);
+    } catch (e) { /* 音声合成なし */ }
+  },
   now() { return this.ctx.currentTime; },
   noise(dur, freq, q, gain, delay = 0, type = 'bandpass', sweepTo = null) {
     if (!this.ctx) return;
@@ -62,5 +138,184 @@ export const Sfx = {
   update(G) {
     if (!this.wind) return;
     this.wind.f.frequency.value = 300 + Math.sin(G.t * 0.3) * 120 + Math.sin(G.t * 1.1) * 40;
+  },
+};
+
+// =====================================================================
+// BGM（和楽器を合成：尺八・箏・和太鼓・締太鼓。都節音階）
+// =====================================================================
+const BASE = 146.83; // D3
+const SCALE = [0, 1, 5, 7, 8]; // 都節音階 D Eb G A Bb
+const fq = (deg, oct = 0) => BASE * Math.pow(2, (SCALE[((deg % 5) + 5) % 5] + 12 * (Math.floor(deg / 5) + oct)) / 12);
+
+// 曲データ：stepは16分音符。melodyは [step, 音度, 長さ(step)]
+const TRACKS = {
+  title: {
+    bpm: 60, bars: 4, drone: [0, 3], droneVol: 0.05,
+    koto: { pat: [[0, 0], [6, 3], [8, 4], [12, 3]], oct: 1, vol: 0.12, everyBar: [0, 2] },
+    shaku: [[0, 7, 10], [12, 8, 4], [16, 7, 8], [24, 6, 8], [32, 5, 6], [38, 6, 2], [40, 7, 14], [56, 4, 6]],
+    shakuOct: 0, taiko: [[0, 0.5]], taikoEvery: 2,
+  },
+  walk: {
+    bpm: 96, bars: 4, drone: [0], droneVol: 0.05,
+    koto: { pat: [[0, 0], [2, 3], [4, 4], [6, 3], [8, 0], [10, 3], [12, 2], [14, 1]], oct: 0, vol: 0.13 },
+    shaku: [[0, 8, 6], [8, 7, 6], [16, 6, 12], [32, 8, 4], [36, 9, 4], [40, 8, 8], [48, 7, 12]],
+    shakuOct: 0, taiko: [[0, 0.8], [8, 0.4]], shime: [4, 12], shimeVol: 0.12,
+  },
+  fight: {
+    bpm: 140, bars: 2, drone: [0, 3], droneVol: 0.06,
+    koto: { pat: [[0, 0], [1, 3], [2, 5], [3, 3], [4, 4], [5, 3], [6, 5], [7, 3], [8, 0], [9, 3], [10, 5], [11, 3], [12, 7], [13, 6], [14, 5], [15, 3]], oct: 0, vol: 0.1 },
+    shaku: [[0, 10, 3], [4, 9, 2], [6, 8, 6], [16, 10, 3], [20, 11, 2], [22, 10, 8]],
+    shakuOct: 0, taiko: [[0, 1], [3, 0.6], [4, 0.9], [8, 1], [11, 0.6], [12, 0.9], [14, 0.7]],
+    shime: [0, 2, 4, 6, 8, 10, 12, 14], shimeVol: 0.1,
+  },
+  kira: {
+    bpm: 70, bars: 2, drone: [0, 1], droneVol: 0.09,
+    koto: { pat: [[0, 5], [8, 6]], oct: 0, vol: 0.12 },
+    shaku: [[0, 11, 14], [16, 10, 14]], shakuOct: 0, taiko: [[0, 1], [8, 0.7]],
+  },
+  win: {
+    bpm: 84, bars: 4, drone: [0, 2], droneVol: 0.05,
+    koto: { pat: [[0, 0], [1, 2], [2, 3], [3, 5], [4, 7], [8, 5], [10, 3], [12, 2]], oct: 0, vol: 0.12 },
+    shaku: [[0, 7, 8], [8, 8, 4], [12, 7, 4], [16, 5, 12], [32, 7, 6], [38, 8, 2], [40, 10, 16], [56, 7, 8]],
+    shakuOct: 0, taiko: [[0, 1], [6, 0.5], [8, 0.8], [12, 0.5]],
+  },
+  dead: {
+    bpm: 50, bars: 4, drone: [0], droneVol: 0.05,
+    shaku: [[4, 5, 8], [12, 4, 4], [16, 3, 16], [36, 1, 6], [42, 0, 18]], shakuOct: 0,
+  },
+};
+
+const Music = {
+  cur: null, next: null, step: 0, nextTime: 0, timer: null, bus: null, droneNodes: [],
+  play(sfx, name) {
+    if (!sfx.ctx || name === this.cur || !TRACKS[name]) return;
+    this.sfx = sfx;
+    const ctx = sfx.ctx;
+    if (!this.bus) {
+      this.bus = ctx.createGain(); this.bus.gain.value = 0.55;
+      // 簡易リバーブ（遅延の帰還）
+      const d = ctx.createDelay(1); d.delayTime.value = 0.23;
+      const fb = ctx.createGain(); fb.gain.value = 0.32;
+      const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 2200;
+      this.bus.connect(sfx.master);
+      this.bus.connect(d); d.connect(lp); lp.connect(fb); fb.connect(d); lp.connect(sfx.master);
+    }
+    const now = ctx.currentTime;
+    this.bus.gain.cancelScheduledValues(now);
+    this.bus.gain.setValueAtTime(this.bus.gain.value, now);
+    this.bus.gain.linearRampToValueAtTime(0.0001, now + 0.35);
+    this.bus.gain.linearRampToValueAtTime(0.55, now + 0.9);
+    this.stopDrone(now + 0.35);
+    this.cur = name;
+    this.step = 0;
+    this.nextTime = now + 0.4;
+    this.startDrone(TRACKS[name], now + 0.4);
+    if (!this.timer) this.timer = setInterval(() => this.tick(), 25);
+  },
+  startDrone(tr, t) {
+    const ctx = this.sfx.ctx;
+    for (const deg of tr.drone || []) {
+      for (const det of [-4, 4]) {
+        const o = ctx.createOscillator(); o.type = 'sawtooth';
+        o.frequency.value = fq(deg, -1); o.detune.value = det;
+        const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 420;
+        const g = ctx.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(tr.droneVol, t + 1.5);
+        o.connect(f); f.connect(g); g.connect(this.bus);
+        o.start(t);
+        this.droneNodes.push({ o, g });
+      }
+    }
+  },
+  stopDrone(t) {
+    for (const { o, g } of this.droneNodes) {
+      g.gain.cancelScheduledValues(t - 0.3); g.gain.setTargetAtTime(0.0001, t - 0.3, 0.1);
+      o.stop(t + 0.5);
+    }
+    this.droneNodes = [];
+  },
+  tick() {
+    const sfx = this.sfx;
+    if (!sfx || !sfx.ctx || !this.cur) return;
+    const ctx = sfx.ctx;
+    const tr = TRACKS[this.cur];
+    const spb = 60 / tr.bpm / 4; // 16分音符の長さ
+    const total = tr.bars * 16;
+    while (this.nextTime < ctx.currentTime + 0.12) {
+      const st = this.step % total, t = this.nextTime;
+      const inBar = st % 16, bar = Math.floor(st / 16);
+      if (tr.koto && (!tr.koto.everyBar || tr.koto.everyBar.includes(bar))) {
+        for (const [s, deg] of tr.koto.pat) if (s === inBar) this.koto(fq(deg, tr.koto.oct), t, tr.koto.vol);
+      }
+      if (tr.taiko && (!tr.taikoEvery || bar % tr.taikoEvery === 0)) {
+        for (const [s, v] of tr.taiko) if (s === inBar) this.taiko(t, v);
+      }
+      if (tr.shime && tr.shime.includes(inBar)) this.shime(t, tr.shimeVol * (inBar % 4 === 0 ? 1.4 : 1));
+      if (tr.shaku) for (const [s, deg, len] of tr.shaku) if (s === st) this.shakuhachi(fq(deg, tr.shakuOct), t, len * spb);
+      this.nextTime += spb;
+      this.step++;
+    }
+  },
+  // 箏：撥弦（鋭い立ち上がりと減衰、わずかな音程の揺れ）
+  koto(f, t, vol) {
+    const ctx = this.sfx.ctx;
+    const o1 = ctx.createOscillator(), o2 = ctx.createOscillator();
+    o1.type = 'triangle'; o2.type = 'sawtooth';
+    o1.frequency.setValueAtTime(f * 1.01, t); o1.frequency.exponentialRampToValueAtTime(f, t + 0.05);
+    o2.frequency.value = f * 2.003;
+    const f2 = ctx.createBiquadFilter(); f2.type = 'lowpass';
+    f2.frequency.setValueAtTime(f * 9, t); f2.frequency.exponentialRampToValueAtTime(f * 1.5, t + 0.5);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.004); g.gain.exponentialRampToValueAtTime(0.0001, t + 1.3);
+    const g2 = ctx.createGain(); g2.gain.value = 0.25;
+    o1.connect(f2); o2.connect(g2); g2.connect(f2); f2.connect(g); g.connect(this.bus);
+    o1.start(t); o2.start(t); o1.stop(t + 1.4); o2.stop(t + 1.4);
+  },
+  // 尺八：息の音＋ゆっくり立ち上がる音、ビブラートと「メリ」からの持ち上げ
+  shakuhachi(f, t, dur) {
+    const ctx = this.sfx.ctx, sfx = this.sfx;
+    const o = ctx.createOscillator(); o.type = 'sine';
+    o.frequency.setValueAtTime(f * 0.94, t); o.frequency.exponentialRampToValueAtTime(f, t + 0.18);
+    const vib = ctx.createOscillator(); vib.frequency.value = 5.2;
+    const vg = ctx.createGain(); vg.gain.setValueAtTime(0, t); vg.gain.linearRampToValueAtTime(f * 0.012, t + dur * 0.6);
+    vib.connect(vg); vg.connect(o.frequency);
+    const o2 = ctx.createOscillator(); o2.type = 'triangle'; o2.frequency.value = f * 2; // 倍音
+    const g2 = ctx.createGain(); g2.gain.value = 0.08;
+    const g = ctx.createGain();
+    const peak = 0.11, end = t + dur;
+    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(peak, t + 0.12);
+    g.gain.setValueAtTime(peak, Math.max(t + 0.12, end - 0.25)); g.gain.linearRampToValueAtTime(0.0001, end + 0.15);
+    o.connect(g); o2.connect(g2); g2.connect(g); g.connect(this.bus);
+    // 息の音
+    const n = ctx.createBufferSource(); n.buffer = sfx.noiseBuf;
+    const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = f * 2; bp.Q.value = 2;
+    const ng = ctx.createGain(); ng.gain.setValueAtTime(0.0001, t); ng.gain.linearRampToValueAtTime(0.09, t + 0.06); ng.gain.linearRampToValueAtTime(0.025, t + 0.3); ng.gain.linearRampToValueAtTime(0.0001, end + 0.15);
+    n.connect(bp); bp.connect(ng); ng.connect(this.bus);
+    for (const x of [o, o2, vib]) { x.start(t); x.stop(end + 0.2); }
+    n.start(t, Math.random()); n.stop(end + 0.2);
+  },
+  // 和太鼓（大太鼓）
+  taiko(t, v) {
+    const ctx = this.sfx.ctx;
+    const o = ctx.createOscillator(); o.type = 'sine';
+    o.frequency.setValueAtTime(110, t); o.frequency.exponentialRampToValueAtTime(48, t + 0.35);
+    const g = ctx.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.75 * v, t + 0.006); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.7);
+    o.connect(g); g.connect(this.bus); o.start(t); o.stop(t + 0.75);
+    const n = ctx.createBufferSource(); n.buffer = this.sfx.noiseBuf;
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 600;
+    const ng = ctx.createGain(); ng.gain.setValueAtTime(0.0001, t); ng.gain.exponentialRampToValueAtTime(0.35 * v, t + 0.004); ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
+    n.connect(lp); lp.connect(ng); ng.connect(this.bus); n.start(t, Math.random()); n.stop(t + 0.15);
+  },
+  // 締太鼓
+  shime(t, v) {
+    const ctx = this.sfx.ctx;
+    const o = ctx.createOscillator(); o.type = 'triangle';
+    o.frequency.setValueAtTime(520, t); o.frequency.exponentialRampToValueAtTime(300, t + 0.05);
+    const g = ctx.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(v, t + 0.002); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.09);
+    o.connect(g); g.connect(this.bus); o.start(t); o.stop(t + 0.1);
+    const n = ctx.createBufferSource(); n.buffer = this.sfx.noiseBuf;
+    const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 2500;
+    const ng = ctx.createGain(); ng.gain.setValueAtTime(0.0001, t); ng.gain.exponentialRampToValueAtTime(v * 0.6, t + 0.002); ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.04);
+    n.connect(hp); hp.connect(ng); ng.connect(this.bus); n.start(t, Math.random()); n.stop(t + 0.05);
   },
 };

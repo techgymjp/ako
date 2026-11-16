@@ -393,6 +393,7 @@ function updateEnemy(e, dt) {
       if (e.t > e.wait && G.attackCD <= 0 && !anyAttacking() && G.state === 'fight') {
         e.state = 'windup'; e.t = 0; e.windup = e.ty.windup * (G.stopIdx === 0 ? 1.3 : 1);
         Sfx.shing();
+        if (Math.random() < 0.6) Sfx.voice('oa', 0.5, 120 + Math.random() * 30, 160, 0.3, 0.7, 0.1);
       }
       break;
     }
@@ -408,14 +409,14 @@ function updateEnemy(e, dt) {
         e.state = 'strike'; e.t = 0;
         const dirs = [[0, -1], [0.7, -0.7], [-0.7, -0.7], [1, 0]];
         const d = dirs[Math.floor(Math.random() * dirs.length)];
-        ch.startSlash(d[0], d[1], 0.3);
-        Sfx.swing();
+        ch.startSlash(d[0], d[1], 0.45);
+        Sfx.swing(); Sfx.roar();
       }
       break;
     }
     case 'strike': {
       ch.setGlint(0);
-      if (e.t > 0.09 && !e.struck) {
+      if (e.t > 0.12 && !e.struck) {
         e.struck = true;
         if (G.state === 'fight' || G.state === 'kira') playerKilled(e);
       }
@@ -436,16 +437,16 @@ function updateEnemy(e, dt) {
         e.swingT = 0.7 + Math.random() * 0.6;
         const who = Math.random() < 0.5 ? ch : a;
         const ang = Math.random() * Math.PI * 2;
-        who.startSlash(Math.cos(ang), Math.sin(ang), 0.3);
-        later(0.12, () => {
+        who.startSlash(Math.cos(ang), Math.sin(ang), 0.5);
+        later(0.14, () => {
           if (!e.alive) return;
           Sfx.clang(0.4);
           a.chestWorld(_v3); emitSparks(_v3.lerp(ch.chestWorld(new THREE.Vector3()), 0.5), 8, 0xffe0a0, 3);
         });
       }
       if (e.t > e.duelT) {
-        a.startSlash(Math.random() - 0.5, -1, 0.3);
-        later(0.11, () => killEnemy(e, a, true));
+        a.startSlash(Math.random() - 0.5, -1, 0.5);
+        later(0.14, () => killEnemy(e, a, true));
         e.t = -99;
       }
       break;
@@ -465,13 +466,14 @@ function killEnemy(e, by, quiet = false) {
   emitSparks(_v2, quiet ? 10 : 22, 0xff3b30, 4);
   if (!quiet) G.kills++;
   Sfx.cut(quiet ? 0.5 : 1);
+  Sfx.cry();
 }
 
 function playerKilled(e) {
   G.state = 'dead'; G.stateT = 0;
   player.die(1);
   G.redFlash = 1; G.camShake = 0.6; G.slowmo = 0.25;
-  Sfx.cut(1); Sfx.gameover();
+  Sfx.cut(1); Sfx.gameover(); Sfx.groan();
   player.chestWorld(_v); emitSparks(_v, 30, 0xff2a20, 3);
   banner('無念……', `${e.def.name || '吉良家家臣'}の刃に倒れた`, 3);
   hint('');
@@ -566,7 +568,7 @@ function processSegment(a, b) {
     const p0 = swipe.pts[0];
     if (Math.hypot(b.x - p0.x, b.y - p0.y) > 90 && speed > 0.8) {
       swipe.whiffed = true;
-      player.startSlash(-dir.x, dir.y, 0.32);
+      player.startSlash(-dir.x, dir.y, 0.56);
       Sfx.swing();
     }
   }
@@ -589,14 +591,15 @@ function doCut(e, dir, speed) {
   clampToRoom(G.room, player.lungeTo || _v2.copy(player.pos), 0.4);
   player.lungeT = 0.13;
   G.facing = Math.atan2(target.x - player.pos.x, target.z - player.pos.z);
-  player.startSlash(-dir.x, dir.y, 0.3);
+  player.startSlash(-dir.x, dir.y, 0.56);
   Sfx.swing();
+  if (swipe.cuts === 0 && (speed > 2.6 || Math.random() < 0.6)) Sfx.kiai(speed > 2.6);
 
   const sAng = Math.atan2(dir.y, dir.x);
   if (e !== kira && e.state === 'guard' && e.guard !== null && angleDiffMod180(sAng, e.guard) < 0.5) {
     // 受け止められた
     swipe.blocked = true;
-    pendingCuts.push({ t: 0.07, fn: () => {
+    pendingCuts.push({ t: 0.13, fn: () => {
       Sfx.clang(1);
       e.ch.chestWorld(_v2); emitSparks(_v2, 26, 0xffd27a, 5);
       G.camShake = 0.15; G.blocks++;
@@ -613,7 +616,7 @@ function doCut(e, dir, speed) {
   const dmg = speed > 2.6 ? 2 : 1;
   swipe.cuts++;
   const combo = swipe.cuts;
-  pendingCuts.push({ t: 0.08, fn: () => {
+  pendingCuts.push({ t: 0.14, fn: () => {
     if (e === kira) { finishKira(); return; }
     if (!e.alive) return;
     e.hp -= dmg;
@@ -757,12 +760,13 @@ function arriveStop(st) {
   }
   G.state = 'fight';
   if (st.intro) banner(st.title, st.intro, 2.2);
+  if (st.enemies && st.enemies.some((d) => d.name)) Sfx.voice('ao', 0.7, 110, 150, 0.45, 0.8, 0.3);
   else banner(st.title, '', 1.6);
   engageStop(st);
   G.attackCD = 1.2;
   if (st.tutorial && !G.tutorialShown) {
     G.tutorialShown = true;
-    hint('敵の身体をなぞるように素早くフリックして斬れ！\n刀を構えた敵は、その刀と同じ向きに斬ると弾かれる。\n刀が赤く光ったら斬られる前に斬れ！');
+    hint('敵をなぞるようにフリックして斬れ！\n点線「受」と同じ向きは弾かれる／刀が赤く光ったら先に斬れ');
   }
 }
 
@@ -790,6 +794,7 @@ function revealKira() {
     if (G.state !== 'event') return;
     G.state = 'kira';
     banner('吉良上野介、覚悟！', '亡き殿の無念、今こそ晴らす――', 2.6);
+    Sfx.say('吉良上野介、覚悟！', { pitch: 0.5, rate: 1.0 });
     hint('吉良をフリックで斬れ！');
   });
 }
@@ -801,7 +806,8 @@ function finishKira() {
   G.slowmo = 0.2; G.whiteFlash = 1;
   kira.ch.die(1);
   kira.ch.chestWorld(_v); emitSparks(_v, 30, 0xff3b30, 3);
-  Sfx.cut(1);
+  Sfx.cut(1); Sfx.kiai(true); Sfx.cry(true);
+  later(1.2, () => Sfx.say('えい、えい、おう！', { pitch: 0.7, rate: 0.9 }));
   Sfx.drum(0.6); Sfx.drum(1.2); Sfx.drum(1.7);
   hint('');
   banner('本懐成就', '元禄十五年十二月十五日　未明', 4);
@@ -839,6 +845,9 @@ function togglePause() {
 }
 
 $('startBtn').onclick = startGame;
+$('howtoBtn').onclick = () => { $('title').classList.remove('show'); $('howto').classList.add('show'); };
+$('howtoBack').onclick = () => { $('howto').classList.remove('show'); $('title').classList.add('show'); };
+addEventListener('pointerdown', () => { Sfx.init(); if (G.state === 'title') Sfx.music('title'); }, { once: true });
 $('retryBtn').onclick = startGame;
 $('retryHere').onclick = retryStop;
 $('resumeBtn').onclick = togglePause;
@@ -874,7 +883,7 @@ function update(dt) {
 
   // ---- 主人公の移動 ----
   if (G.state === 'intro') {
-    if (G.stateT > 2.6) { G.state = 'walk'; G.stateT = 0; banner('かかれっ！', '大石内蔵助、表門より討ち入る', 1.8); Sfx.shout(); }
+    if (G.stateT > 2.6) { G.state = 'walk'; G.stateT = 0; banner('かかれっ！', '大石内蔵助、表門より討ち入る', 1.8); Sfx.shout(); Sfx.say('かかれーっ！', { pitch: 0.55, rate: 1.1 }); }
   }
   if (G.state === 'walk') {
     const target = st ? st.s : RAIL_TOTAL;
@@ -908,7 +917,7 @@ function update(dt) {
     if (player.mode !== 'slash') player.setMode('ready');
   }
   player.update(dt);
-  updateTrail(player, player.mode === 'slash');
+  updateTrail(player, player.swinging || (player.mode === 'slash' && player.modeT < player.modeDur * 0.45));
 
   G.room = roomAtWorld(player.pos.x, player.pos.z);
   const roomName = G.room ? G.room.name : (player.pos.x > 50 ? '表門' : '前庭');
@@ -975,6 +984,7 @@ function update(dt) {
       engageStop(st);
       G.attackCD = 0.6;
       banner('曲者！', '吉良家の家臣が斬りかかる！', 1.6);
+      Sfx.say('曲者！', { pitch: 0.8, rate: 1.2 });
     } else if (st.event === 'futon') {
       st.eventEnd = 0;
       st.done = true; G.stopIdx++; G.state = 'walk';
@@ -989,11 +999,25 @@ function update(dt) {
   updateSnow(dt, G.t);
   updateSparks(dt);
   Sfx.update(G);
+  Sfx.music(musicFor());
 
   msgTimer -= dt / Math.max(0.2, G.slowmo);
   if (msgTimer <= 0) hud.msg.parentElement.classList.remove('show');
   comboTimer -= dt;
   if (comboTimer <= 0) hud.combo.classList.remove('pop');
+}
+
+function musicFor() {
+  switch (G.state) {
+    case 'title': return 'title';
+    case 'fight': return 'fight';
+    case 'kira': return 'kira';
+    case 'event': return kira ? 'kira' : 'walk';
+    case 'dead': return 'dead';
+    case 'win': return 'win';
+    case 'paused': return null;
+    default: return 'walk';
+  }
 }
 
 function updateCamera(dt) {
