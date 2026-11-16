@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import * as TX from './textures.js';
 import { GLTFLoader } from '../vendor/addons/loaders/GLTFLoader.js';
-import { CLIPS, sample, basisQuat } from './mocap.js';
+import { CLIPS, sample, basisQuat, ONE_HANDED } from './mocap.js';
 
 // ================================================================
 // 外部の3Dモデル（Sketchfab, CC BY 4.0）
@@ -466,15 +466,21 @@ export class Character {
     this.slashL.set(lx, ly, 0).normalize();
     this.from = clonePose(this.cur);
     this.mode = 'slash'; this.modeT = 0; this.modeDur = dur;
-    if (mocap && Math.abs(this.slashL.y) < 0.6) {
+    if (mocap && this.slashL.y <= -0.6 && CLIPS.slash_down) {
+      // 振り下ろし（上段から斬り下ろす）。斜めなら向きに合わせて左右反転
+      const c = CLIPS.slash_down;
+      const mirror = false;
+      this.playMocap('slash_down', { from: Math.max(0, c.contact - 0.45), to: Math.min(c.duration, c.contact + 0.5), dur, mirror,
+        warp: { u: 0.27, t: c.contact }, travel: 0.3, fadeIn: 0.05, fadeOut: 0.18 });
+    } else if (mocap && Math.abs(this.slashL.y) < 0.6) {
       // 刀が動く向き（+1：人物の右→左）に合うクリップを選ぶ。左右反転も候補にする
       const want = this.slashL.x >= 0 ? 1 : -1;
       const cands = [];
       for (const n of ['slash_great', 'slash_sweep', 'slash_spin', 'slash_inward']) {
         const c = CLIPS[n];
         if (!c) continue;
-        if (c.sweepX === want) cands.push([n, false], [n, false]);   // そのままの向きを優先
-        else cands.push([n, true]);
+        if (c.sweepX === want) cands.push([n, false]);
+        else if (!ONE_HANDED.has(n)) cands.push([n, true]);   // 両手の斬撃だけ左右反転して使う
       }
       if (cands.length) {
         const [n, mirror] = cands[Math.floor(Math.random() * cands.length)];
@@ -850,10 +856,7 @@ export class Character {
     // 刀：両手で握っていれば右手と左手を結ぶ向き、片手なら前腕の延長に少し上向き
     const d = _h.subVectors(A.R, A.L);
     if (d.length() < 0.26) A.dir.copy(d).normalize();
-    else {
-      A.dir.subVectors(S.RightHand, S.RightForeArm).applyQuaternion(_qe).normalize();
-      A.dir.y += 0.35; A.dir.normalize();
-    }
+    else A.dir.copy(S.blade).applyQuaternion(_qe).normalize();   // 片手：右手の向きから
     if (this.mo.clip.name === 'idle') {
       // 大剣の構えを日本刀の中段に：剣先を正面（相手の喉元）へ向け、少し上げる
       A.dir.x *= 0.2; A.dir.y += 0.15; A.dir.z = Math.abs(A.dir.z) + 0.3; A.dir.normalize();

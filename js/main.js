@@ -1665,7 +1665,7 @@ async function boot() {
     player.dress(); allies.forEach((a) => a.ch.dress());
   } catch (e) { console.warn('model load failed', e); }
   try {
-    await loadMocap(['slash_great', 'slash_sweep', 'slash_spin', 'slash_inward', 'hit_impact', 'hit_guard', 'death_walk', 'death_back', 'terrified', 'idle']);
+    await loadMocap(['slash_great', 'slash_sweep', 'slash_spin', 'slash_inward', 'hit_impact', 'hit_guard', 'death_walk', 'death_back', 'terrified', 'idle', 'slash_down']);
   } catch (e) { console.warn('mocap load failed', e); }
   step(0.18, L('屋敷と人物を準備中……', 'Preparing the mansion...'));
   await new Promise((r) => setTimeout(r, 30));

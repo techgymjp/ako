@@ -11,7 +11,7 @@ const NAMES = ['Hips', 'Spine', 'Spine2', 'Neck', 'Head', 'HeadTop_End', 'LeftSh
 const MIRROR = NAMES.map((n) => NAMES.indexOf(n.startsWith('Left') ? n.replace('Left', 'Right') : n.startsWith('Right') ? n.replace('Right', 'Left') : n));
 
 // 斬撃の「当たる瞬間」（右手が体の中心を横切るフレーム）
-const CONTACT = { slash_great: 13, slash_sweep: 18, slash_spin: 26, slash_inward: 36 };
+const CONTACT = { slash_great: 13, slash_sweep: 18, slash_spin: 26, slash_inward: 36, slash_down: 25 };
 
 export async function loadMocap(names, base = 'assets/mocap/') {
   await Promise.all(names.map(async (name) => {
@@ -21,10 +21,13 @@ export async function loadMocap(names, base = 'assets/mocap/') {
     const idx = d.joints.map((j) => NAMES.indexOf(j));
     const F = d.frames, J = NAMES.length;
     const pos = new Float32Array(F * J * 3);
+    const quat = new Float32Array(F * 4);   // 右手の向き（刀の向きを求める）
+    const nq = d.joints.length * 3;
     const h0 = d.data[0];
     const hj = d.joints.indexOf('Hips') * 3;
     for (let f = 0; f < F; f++) {
       const row = d.data[f];
+      if (row.length >= nq + 4) for (let k = 0; k < 4; k++) quat[f * 4 + k] = row[nq + k];
       for (let j = 0; j < d.joints.length; j++) {
         const o = (f * J + idx[j]) * 3;
         pos[o] = (row[j * 3] - h0[hj]) * K;
@@ -35,7 +38,7 @@ export async function loadMocap(names, base = 'assets/mocap/') {
     // 当たる瞬間に右手が動く向き（+1：人物の右→左, -1：左→右）
     const cf = CONTACT[name] ?? 0, rh = NAMES.indexOf('RightHand');
     const xa = pos[(Math.max(0, cf - 1) * J + rh) * 3], xb = pos[(Math.min(F - 1, cf + 1) * J + rh) * 3];
-    CLIPS[name] = { name, fps: d.fps, frames: F, duration: (F - 1) / d.fps, pos, contact: cf / d.fps, sweepX: Math.sign(xb - xa) };
+    CLIPS[name] = { name, fps: d.fps, frames: F, duration: (F - 1) / d.fps, pos, quat, contact: cf / d.fps, sweepX: Math.sign(xb - xa) };
   }));
 }
 
@@ -54,6 +57,11 @@ export function sample(clip, t, mirror, travel, out) {
     if (mirror) x = -x;
     (out[NAMES[j]] ||= new THREE.Vector3()).set(x, y, z);
   }
+  // 刀の向き：右手の骨に対する刀身の向き（両手の構えから求めた値）を世界の向きへ
+  const q0 = _qa.fromArray(clip.quat, f0 * 4), q1 = _qb.fromArray(clip.quat, f1 * 4);
+  q0.slerp(q1, a);
+  (out.blade ||= new THREE.Vector3()).copy(BLADE_LOCAL).applyQuaternion(q0);
+  if (mirror) out.blade.x = -out.blade.x;
   if (travel !== 1) {
     // 前進・横移動を縮める（その場で演じる）
     const hx = out.Hips.x * (1 - travel), hz = out.Hips.z * (1 - travel);
@@ -61,6 +69,11 @@ export function sample(clip, t, mirror, travel, out) {
   }
   return out;
 }
+
+const BLADE_LOCAL = new THREE.Vector3(0.82, 0.24, -0.5).normalize();
+const _qa = new THREE.Quaternion(), _qb = new THREE.Quaternion();
+// 片手で刀を振るクリップ（左右反転すると刀を持たない手が振ってしまうので反転しない）
+export const ONE_HANDED = new Set(['slash_sweep', 'slash_spin', 'slash_inward', 'slash_down']);
 
 // 胴・頭の向き（基底）を作る
 const _x = new THREE.Vector3(), _y = new THREE.Vector3(), _z = new THREE.Vector3(), _m = new THREE.Matrix4();
