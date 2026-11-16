@@ -108,6 +108,8 @@ function updateSnow(dt, t) {
     if (wz > 20) snowPos[i * 3 + 2] -= 40; else if (wz < -20) snowPos[i * 3 + 2] += 40;
   }
   snowGeo.attributes.position.needsUpdate = true;
+  // 屋内では雪を降らせない
+  snow.visible = !roomAtWorld(c.x, c.z);
 }
 
 // 火花パーティクル
