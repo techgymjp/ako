@@ -1,7 +1,7 @@
 // 忠臣蔵 赤穂浪士の討ち入り — メイン
 import * as THREE from 'three';
 import { buildWorld, RAIL, P, roomAtWorld, clampToRoom, WALL_H } from './world.js';
-import { Character, setCharacterShadows } from './characters.js';
+import { Character, setCharacterShadows, loadAssets } from './characters.js';
 import * as TX from './textures.js';
 import { Sfx } from './audio.js';
 import { T, lang, setLang, applyStatic } from './i18n.js';
@@ -1658,7 +1658,12 @@ async function boot() {
   const L = (ja, en) => (lang === 'en' ? en : ja);
   step(0.02, L('文字を読み込み中……', 'Loading fonts...'));
   try { await Promise.race([document.fonts.ready, new Promise((r) => setTimeout(r, 3000))]); } catch (e) { /* 無視 */ }
-  step(0.1, L('屋敷と人物を準備中……', 'Preparing the mansion...'));
+  step(0.08, L('着物と刀を読み込み中……', 'Loading costumes and swords...'));
+  try {
+    await loadAssets();
+    player.dress(); allies.forEach((a) => a.ch.dress());
+  } catch (e) { console.warn('model load failed', e); }
+  step(0.18, L('屋敷と人物を準備中……', 'Preparing the mansion...'));
   await new Promise((r) => setTimeout(r, 30));
   // 全種類の人物を一度描いて、シェーダーを先にコンパイルしておく
   const warm = ['oishi', 'ronin', 'retainer', 'retainer2', 'boss1', 'boss2', 'boss3', 'kira'].map((t, i) => {

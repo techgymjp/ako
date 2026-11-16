@@ -1,0 +1,11 @@
+Model Information:
+* title:	Japanese Clothes
+* source:	https://sketchfab.com/3d-models/japanese-clothes-a87d993c197749e3a243fac636f23485
+* author:	Takeru (https://sketchfab.com/takeru1124)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Japanese Clothes" (https://sketchfab.com/3d-models/japanese-clothes-a87d993c197749e3a243fac636f23485) by Takeru (https://sketchfab.com/takeru1124) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)

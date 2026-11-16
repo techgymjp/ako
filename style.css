@@ -117,3 +117,6 @@ body.en .loc,body.en h3,body.en .sub{letter-spacing:.06em}
 #ranking li span{font-weight:800;margin-right:8px}
 #ranking li small{color:#9fb0c8}
 #ranking li.me{color:#ffe08a}
+
+.credits{font-size:11px;color:#8090a8;margin-top:18px;line-height:1.6}
+.credits a{color:#9fb0c8}

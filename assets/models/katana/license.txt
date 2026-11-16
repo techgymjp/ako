@@ -1,0 +1,11 @@
+Model Information:
+* title:	Katana Samurai (game ready asset)
+* source:	https://sketchfab.com/3d-models/katana-samurai-game-ready-asset-39f9e0233d954c969bcb1c85c29a2ba9
+* author:	Pixel Life (https://sketchfab.com/pixellife)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Katana Samurai (game ready asset)" (https://sketchfab.com/3d-models/katana-samurai-game-ready-asset-39f9e0233d954c969bcb1c85c29a2ba9) by Pixel Life (https://sketchfab.com/pixellife) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)

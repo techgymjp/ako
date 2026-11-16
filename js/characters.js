@@ -1,6 +1,141 @@
 // 人物モデル（プリミティブを組み合わせた手続き生成の人体＋ポーズ計算）
 import * as THREE from 'three';
 import * as TX from './textures.js';
+import { GLTFLoader } from '../vendor/addons/loaders/GLTFLoader.js';
+
+// ================================================================
+// 外部の3Dモデル（Sketchfab, CC BY 4.0）
+//  - 着物："Japanese Clothes" by Takeru
+//  - 刀　："Katana Samurai (game ready asset)" by Pixel Life
+// 着物は人物の骨格に追従するスキンメッシュに変換して着せる
+// ================================================================
+export const ASSETS = { ready: false };
+const CLOTH_S = 0.00935;           // 着物：cm → 人物の座標
+const ARM_DIR = { x: 0.74, y: -0.67 }; // 着物の袖の向き（Aポーズ）
+const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+// 骨の番号
+const B = { hips: 0, torso: 1, head: 2, upL: 3, foL: 4, upR: 5, foR: 6, thL: 7, shL: 8, thR: 9, shR: 10 };
+
+// 頂点ごとにどの骨に付いて動くかを決める（自動の重み付け）
+function skinWeights(name, geo) {
+  const pos = geo.attributes.position, n = pos.count;
+  const idx = new Uint16Array(n * 4), wts = new Float32Array(n * 4);
+  for (let i = 0; i < n; i++) {
+    const x = pos.getX(i), y = pos.getY(i);
+    const w = {};
+    const add = (b, v) => { if (v > 1e-4) w[b] = (w[b] || 0) + v; };
+    if (name === 'hakama') {
+      const h = smooth(0.86, 1.02, y);                 // 腰
+      const left = smooth(-0.07, 0.07, x);             // 左右の脚
+      const k = smooth(0.42, 0.62, y);                 // 膝の上下
+      add(B.hips, h);
+      add(B.thL, (1 - h) * left * k); add(B.shL, (1 - h) * left * (1 - k));
+      add(B.thR, (1 - h) * (1 - left) * k); add(B.shR, (1 - h) * (1 - left) * (1 - k));
+    } else {
+      const ax = Math.abs(x), side = x >= 0;
+      const arm = smooth(0.17, 0.31, ax);              // 袖
+      const t = (ax - 0.2) * ARM_DIR.x + (y - 1.45) * ARM_DIR.y; // 肩からの腕方向の距離
+      const fore = smooth(0.2, 0.36, t);
+      // 袖の垂れた部分（袂）は腕から離れるほど胴にも付ける（腕を上げても翼のように広がらない）
+      const py = (ax - 0.2) * -ARM_DIR.y + (y - 1.45) * ARM_DIR.x;
+      const hang = smooth(-0.05, -0.22, py) * 0.55;
+      const armW = arm * (1 - hang);
+      const low = smooth(0.95, 0.7, y) * (1 - arm);    // 裾は少し腰について動く
+      add(B.torso, (1 - armW) * (1 - low * 0.5));
+      add(B.hips, low * 0.5);
+      add(side ? B.upL : B.upR, armW * (1 - fore));
+      add(side ? B.foL : B.foR, armW * fore);
+    }
+    const top = Object.entries(w).sort((a, b) => b[1] - a[1]).slice(0, 4);
+    const sum = top.reduce((s, e) => s + e[1], 0) || 1;
+    top.forEach(([b, v], j) => { idx[i * 4 + j] = +b; wts[i * 4 + j] = v / sum; });
+  }
+  geo.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(idx, 4));
+  geo.setAttribute('skinWeight', new THREE.Float32BufferAttribute(wts, 4));
+  geo.setAttribute('restPos', new THREE.BufferAttribute(pos.array.slice(), 3));
+}
+
+export async function loadAssets(base = 'assets/models/') {
+  const loader = new GLTFLoader();
+  const [clothes, katana] = await Promise.all([loader.loadAsync(base + 'clothes/scene.gltf'), loader.loadAsync(base + 'katana/scene.gltf')]);
+  clothes.scene.updateMatrixWorld(true);
+  const garments = {};
+  clothes.scene.traverse((o) => {
+    if (!o.isMesh) return;
+    const name = /hakama/i.test(o.name) ? 'hakama' : /jinbei/i.test(o.name) ? 'jinbei' : 'haori';
+    const geo = o.geometry.clone().applyMatrix4(o.matrixWorld).scale(CLOTH_S, CLOTH_S, CLOTH_S);
+    skinWeights(name, geo);
+    geo.computeBoundingSphere();
+    garments[name] = { geo, mat: o.material };
+  });
+  ASSETS.garments = garments;
+  // 刀：柄の中心を原点、切っ先を +Y に
+  katana.scene.updateMatrixWorld(true);
+  katana.scene.traverse((o) => {
+    if (!o.isMesh) return;
+    const g = o.geometry.clone().applyMatrix4(o.matrixWorld);
+    const p = g.attributes.position;
+    const KS = 0.0069;
+    for (let i = 0; i < p.count; i++) {
+      const X = p.getX(i), Y = p.getY(i), Z = p.getZ(i);
+      p.setXYZ(i, Y * KS, (X + 20) * KS, -Z * KS);
+    }
+    const nrm = g.attributes.normal;
+    for (let i = 0; i < nrm.count; i++) { const X = nrm.getX(i), Y = nrm.getY(i), Z = nrm.getZ(i); nrm.setXYZ(i, Y, X, -Z); }
+    g.deleteAttribute('tangent');
+    g.computeBoundingSphere();
+    ASSETS.katana = { geo: g, mat: o.material };
+  });
+  ASSETS.ready = true;
+}
+
+// 着物の色（人物ごと）。map:false は無地
+const CLOTH_LOOK = {
+  oishi: { haori: { color: 0x2b2b30, dandara: true }, jinbei: { color: 0x2a2a2e }, hakama: { color: 0x55555c } },
+  ronin: { haori: { color: 0x2f2f34, dandara: true }, jinbei: { color: 0x2a2a2e }, hakama: { color: 0x5a5a60 } },
+  retainer: { jinbei: { color: 0xc9cfd6, map: false }, hakama: { color: 0xb7bec6 } },
+  retainer2: { haori: { color: 0xb09a7c }, jinbei: { color: 0x8a8578 }, hakama: { color: 0x6e6e74 } },
+  boss1: { haori: { color: 0x6f9a74 }, jinbei: { color: 0x3c4a3e }, hakama: { color: 0x7a6e5e } },
+  boss2: { haori: { color: 0x9a78b0 }, jinbei: { color: 0x40334a }, hakama: { color: 0x55555c } },
+  boss3: { haori: { color: 0xb08a68 }, jinbei: { color: 0x4a3a2c }, hakama: { color: 0x66625c } },
+  kira: { haori: { color: 0xede9df, map: false }, jinbei: { color: 0xe4dfd2, map: false }, hakama: { color: 0xdcd6c6, map: false } },
+};
+const clothMats = {};
+function clothMaterial(type, part) {
+  const key = type + part;
+  if (clothMats[key]) return clothMats[key];
+  const look = (CLOTH_LOOK[type] || CLOTH_LOOK.retainer)[part];
+  const src = ASSETS.garments[part].mat;
+  const m = new THREE.MeshStandardMaterial({
+    map: look.map === false ? null : src.map, normalMap: src.normalMap, color: look.color,
+    roughness: 0.92, metalness: 0, side: THREE.DoubleSide,
+  });
+  if (look.dandara) {
+    // 赤穂浪士の火事装束：裾と袖口に白の山形（だんだら）
+    m.onBeforeCompile = (sh) => {
+      sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute vec3 restPos;\nvarying vec3 vRest;')
+        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvRest = restPos;');
+      sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vRest;')
+        .replace('#include <map_fragment>', `#include <map_fragment>
+          {
+            float tri = abs(fract(atan(vRest.x, vRest.z) * 2.2) - 0.5) * 2.0;
+            float v = (vRest.y - 0.552) / 0.12;
+            float band = (v < 1.0 && v < 0.28 + 0.72 * tri) ? 1.0 : 0.0;
+            float ax = abs(vRest.x);
+            float t = (ax - 0.2) * 0.74 + (vRest.y - 1.45) * -0.67;
+            float py = (ax - 0.2) * 0.67 + (vRest.y - 1.45) * 0.74;
+            float tri2 = abs(fract(atan(py, vRest.z) * 1.6) - 0.5) * 2.0;
+            float c = (0.43 - t) / 0.08;
+            if (ax > 0.3 && c < 1.0 && c < 0.28 + 0.72 * tri2) band = 1.0;
+            diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.86, 0.85, 0.82), band);
+          }`);
+    };
+    m.customProgramCacheKey = () => 'dandara';
+  }
+  clothMats[key] = m;
+  return m;
+}
+
 
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
 const UP = V(0, 1, 0), DOWN = V(0, -1, 0);
@@ -122,12 +257,14 @@ export class Character {
     this.hips = new THREE.Group(); this.hips.position.y = 0.95; this.body.add(this.hips);
 
     // 脚（袴）
+    const cloth = [];
+    this.cloth = cloth;
     const mkLeg = (x) => {
       const leg = new THREE.Group(); leg.position.set(x, 0, 0); this.hips.add(leg);
       const upper = new THREE.Group(); leg.add(upper);
-      mesh(G.thigh, hak, upper);
+      cloth.push(mesh(G.thigh, hak, upper));
       const knee = new THREE.Group(); knee.position.y = -THIGH; upper.add(knee);
-      mesh(G.shin, hak, knee);
+      cloth.push(mesh(G.shin, hak, knee));
       const foot = new THREE.Group(); foot.position.y = -SHIN; knee.add(foot);
       mesh(G.foot, dark, foot);
       leg.userData = { upper, elbow: knee, foot };
@@ -138,9 +275,9 @@ export class Character {
 
     // 胴
     this.torso = new THREE.Group(); this.hips.add(this.torso);
-    const chest = mesh(G.chest, coat, this.torso); chest.scale.z = 0.74;
+    const chest = mesh(G.chest, coat, this.torso); chest.scale.z = 0.74; cloth.push(chest);
     const obi = mesh(G.obi, mat('obi' + type, () => std({ color: type === 'kira' ? '#8a7a5a' : type.startsWith('ronin') || type === 'oishi' ? '#e9e5da' : '#2d2a35', roughness: 0.8 })), this.torso);
-    obi.scale.z = 0.76;
+    obi.scale.z = 0.76; cloth.push(obi);
     mesh(G.neck, skin, this.torso);
 
     // 頭
@@ -166,10 +303,9 @@ export class Character {
     const mkArm = (pos) => {
       const arm = new THREE.Group(); arm.position.copy(pos); this.torso.add(arm);
       const upper = new THREE.Group(); arm.add(upper);
-      mesh(G.upperSleeve, upperMat, upper);
+      cloth.push(mesh(G.upperSleeve, upperMat, upper));
       const elbow = new THREE.Group(); elbow.position.y = -UPPER; upper.add(elbow);
-      mesh(G.lowerSleeve, sleeveMat, elbow);
-      mesh(G.tamoto, upperMat, elbow);
+      cloth.push(mesh(G.lowerSleeve, sleeveMat, elbow), mesh(G.tamoto, upperMat, elbow));
       mesh(G.forearm, skin, elbow);
       mesh(G.hand, skin, elbow);
       arm.userData = { upper, elbow };
@@ -183,9 +319,13 @@ export class Character {
     this.weapon = new THREE.Group(); this.torso.add(this.weapon);
     this.bladeMat = bladeMat();
     if (this.weaponType === 'katana') {
-      mesh(G.tsuka, mat('tsuka', () => std({ map: TX.tsukaTex(), roughness: 0.8 })), this.weapon);
-      mesh(G.tsuba, mat('tsuba', () => std({ color: '#3a3226', metalness: 0.7, roughness: 0.5 })), this.weapon).position.y = 0.135;
+      this.swordParts = [
+        mesh(G.tsuka, mat('tsuka', () => std({ map: TX.tsukaTex(), roughness: 0.8 })), this.weapon),
+        mesh(G.tsuba, mat('tsuba', () => std({ color: '#3a3226', metalness: 0.7, roughness: 0.5 })), this.weapon),
+      ];
+      this.swordParts[1].position.y = 0.135;
       this.blade = mesh(G.blade, this.bladeMat, this.weapon);
+      this.swordParts.push(this.blade);
       this.reach = 0.88;
     } else if (this.weaponType === 'spear') {
       mesh(G.shaft, mat('shaft', () => std({ color: '#3b2717', roughness: 0.7 })), this.weapon);
@@ -210,6 +350,7 @@ export class Character {
 
     const s = opts.scale || (type === 'kira' ? 0.88 : 0.93);
     this.root.scale.setScalar(s);
+    this.outfitType = type;
     this.height = 1.75 * s;
 
     // アニメーション状態
@@ -223,6 +364,56 @@ export class Character {
     // 現在の姿勢（胴体ローカル）：grip=柄の中心, dir=刀身の向き
     this.cur = { grip: V(-0.02, 0.25, 0.36), dir: V(0, 0.75, 1).normalize(), yaw: 0, pitch: 0.05, roll: 0, drop: 0.06, rise: 0, stepF: 0.2, spread: 0.06, headYaw: 0 };
     this.from = null;
+    this.dress();
+  }
+
+  // 着物と刀のモデルに着替える（読み込み後に呼ぶ）
+  dress() {
+    if (!ASSETS.ready || this.dressed) return;
+    this.dressed = true;
+    // 刀
+    if (this.weaponType === 'katana' && ASSETS.katana) {
+      const km = ASSETS.katana.mat.clone();
+      km.emissive = new THREE.Color(0x1b2230); km.emissiveIntensity = 0.6;
+      km.envMapIntensity = 2.2;
+      const k = new THREE.Mesh(ASSETS.katana.geo, km);
+      k.castShadow = shadowsOn;
+      this.weapon.add(k);
+      this.swordParts.forEach((m) => { m.visible = false; });
+      this.bladeMat = km;
+      this.blade = k;
+    }
+    // 骨（既存の関節に付ける）
+    const mk = (parent) => { const b = new THREE.Bone(); parent.add(b); return b; };
+    const L = this.armL.userData, R = this.armR.userData, LL = this.legL.userData, RL = this.legR.userData;
+    const bones = [mk(this.hips), mk(this.torso), mk(this.head), mk(L.upper), mk(L.elbow), mk(R.upper), mk(R.elbow), mk(LL.upper), mk(LL.elbow), mk(RL.upper), mk(RL.elbow)];
+    // 着物と同じ姿勢（Aポーズ）にしてから結び付ける
+    const saved = { p: this.root.position.clone(), r: this.root.rotation.y };
+    this.root.position.set(0, 0, 0); this.root.rotation.set(0, 0, 0);
+    this.body.position.set(0, 0, 0); this.body.rotation.set(0, 0, 0);
+    this.hips.position.set(0, 0.95, 0); this.hips.rotation.set(0, 0, 0);
+    this.torso.rotation.set(0, 0, 0); this.head.rotation.set(0, 0, 0);
+    for (const [arm, sx] of [[L, 1], [R, -1]]) {
+      arm.upper.quaternion.setFromUnitVectors(DOWN, V(sx * ARM_DIR.x, ARM_DIR.y, 0).normalize());
+      arm.elbow.quaternion.identity();
+    }
+    for (const leg of [LL, RL]) { leg.upper.quaternion.identity(); leg.elbow.quaternion.identity(); }
+    this.root.updateMatrixWorld(true);
+    const skeleton = new THREE.Skeleton(bones);
+    const look = CLOTH_LOOK[this.outfitType] || CLOTH_LOOK.retainer;
+    this.garments = [];
+    for (const part of ['hakama', 'jinbei', 'haori']) {
+      if (!look[part]) continue;
+      const m = new THREE.SkinnedMesh(ASSETS.garments[part].geo, clothMaterial(this.outfitType, part));
+      m.frustumCulled = false;
+      m.castShadow = shadowsOn;
+      this.root.add(m);
+      m.updateMatrixWorld(true);
+      m.bind(skeleton, m.matrixWorld);
+      this.garments.push(m);
+    }
+    this.cloth.forEach((m) => { m.visible = false; });
+    this.root.position.copy(saved.p); this.root.rotation.y = saved.r;
   }
 
   setPosition(x, z) { this.root.position.set(x, 0, z); }

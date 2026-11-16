@@ -49,9 +49,18 @@
 | `js/textures.js` | 障子・畳・雪・だんだら模様・顔などを生成するテクスチャ |
 | `js/i18n.js` | 日本語／英語の切り替えと対訳 |
 | `js/audio.js` | 効果音・叫び声・BGM（WebAudioで合成） |
+| `assets/models/` | 着物と刀の3Dモデル（上記クレジット参照） |
 | `vendor/three.module.min.js`, `vendor/addons/` | Three.js r170 と後処理（ブルーム等）のアドオン（MIT License） |
 
-画像や音声のファイルは使わず、すべてプログラムで生成しています。
+音声と、屋敷・背景の画像はすべてプログラムで生成しています。
+
+## 使用している3Dモデル（クレジット）
+
+- "Japanese Clothes" (https://sketchfab.com/3d-models/japanese-clothes-a87d993c197749e3a243fac636f23485) by Takeru (https://sketchfab.com/takeru1124) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+  - 羽織・甚兵衛・袴。人物の骨格に追従するよう重みを付け、色を人物ごとに変えて使用（浪士は黒地にだんだら模様を追加）
+- "Katana Samurai (game ready asset)" (https://sketchfab.com/3d-models/katana-samurai-game-ready-asset-39f9e0233d954c969bcb1c85c29a2ba9) by Pixel Life (https://sketchfab.com/pixellife) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+
+テクスチャはWeb向けに縮小しています。
 
 ## ローカルで動かす
 
