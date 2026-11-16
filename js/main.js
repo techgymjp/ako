@@ -874,7 +874,8 @@ function doCut(e, dir, speed) {
   const sAng = Math.atan2(dir.y, dir.x);
   // 返し技：斬りかかる直前に、斬撃と逆向きにフリック（槍の突きは横に払う）
   if (e !== kira && (e.state === 'windup' && e.t >= e.windup - COUNTER_WIN && !e.feint || e.state === 'strike' && e.t < 0.1)) {
-    const ok = e.ty.thrust ? Math.abs(dir.y) < 0.55 : (dir.x * e.strikeDir.x + dir.y * e.strikeDir.y) < -0.5;
+    const sd = e.strikeDir || { x: 0, y: -1 };
+    const ok = e.ty.thrust ? Math.abs(dir.y) < 0.55 : (dir.x * sd.x + dir.y * sd.y) < -0.5;
     if (ok) { doCounter(e, dir); return; }
   }
   if (e !== kira && e.state === 'guard' && e.guard !== null && angleDiffMod180(sAng, e.guard) < 0.5) {
@@ -887,9 +888,8 @@ function doCut(e, dir, speed) {
       comboText('弾かれた！');
       if (e.alive && e.state === 'guard') {
         // 反撃が来る
-        e.state = 'windup'; e.t = 0; e.windup = Math.max(0.7, e.ty.windup * 0.75);
+        startWindup(e); e.feint = false; e.windup = Math.max(0.7, e.ty.windup * 0.75);
         G.attackCD = 0;
-        Sfx.shing();
       }
     } });
     return;
@@ -1272,7 +1272,7 @@ function update(dt) {
 
   // ---- 主人公の移動 ----
   if (G.state === 'intro') {
-    if (G.stateT > 2.6) { G.state = 'walk'; G.stateT = 0; banner('かかれっ！', '大石内蔵助、表門より討ち入る', 1.8); Sfx.shout(); Sfx.say('かかれーっ！', { pitch: 0.55, rate: 1.1 }); }
+    if (G.stateT > 2.6) { G.state = 'walk'; G.stateT = 0; banner('かかれっ！', '大石内蔵助、表門より討ち入る', 1.8); Sfx.command(); Sfx.say('かかれぇーっ！', { pitch: 0.95, rate: 1.4 }); Sfx.warcry(0.55); Sfx.drum(0.5); Sfx.drum(0.75); }
   }
   if (G.state === 'walk') {
     const target = st ? st.s : RAIL_TOTAL;
@@ -1482,6 +1482,7 @@ function updateCamera(dt) {
 // =====================================================================
 // 斬りかかってくる向きの矢印。返し技の好機には金色になる
 function drawStrikeArrow(e, sr, r) {
+  if (!e.ty.thrust && !e.strikeDir) e.strikeDir = { x: 0, y: -1 };
   const win = e.t >= e.windup - COUNTER_WIN;
   const col = win ? 'rgba(255,215,90,.95)' : `rgba(255,70,50,${0.35 + 0.4 * e.t / e.windup})`;
   octx.save();
@@ -1638,13 +1639,14 @@ function drawOverlay() {
 // ループ
 // =====================================================================
 const clock = new THREE.Clock();
+let frameErrors = 0;
 function frame() {
+  requestAnimationFrame(frame);
   const dt = Math.min(0.05, clock.getDelta());
-  update(dt);
+  try { update(dt); } catch (e) { if (frameErrors++ < 5) console.error(e); }
   filmPass.uniforms.uTime.value = G.t % 100;
   composer.render();
-  drawOverlay();
-  requestAnimationFrame(frame);
+  try { drawOverlay(); } catch (e) { if (frameErrors++ < 5) console.error(e); }
 }
 placeAtRail(0);
 G.state = 'title';

@@ -134,6 +134,20 @@ const Synth = {
     this.noise(0.22, 2500, 2, 0.12, 0, 'bandpass', 4200);
     this.tone(2650, 0.12, 'triangle', 0.16, 0.24); this.tone(5300, 0.1, 'sine', 0.08, 0.24); this.noise(0.03, 6000, 1, 0.25, 0.24, 'highpass');
   },
+  // 鬨の声：大勢の男が声を張り上げる「おおおーっ！」
+  warcry() {
+    const r = (a, b) => a + Math.random() * (b - a);
+    for (let i = 0; i < 9; i++) {
+      const d = r(0.0, 0.25), len = r(1.1, 1.6), f0 = r(115, 175);
+      this.voice(i % 3 === 0 ? 'ao' : 'oa', len, f0, f0 * r(0.8, 1.0), r(0.15, 0.22), r(0.8, 1.0), d);
+    }
+    this.noise(1.4, 700, 0.6, 0.22, 0.05, 'bandpass', 500);
+  },
+  // 大石の号令「かかれーっ！」に重ねる、喉を絞った叫び
+  command() {
+    this.voice('aa', 0.28, 190, 230, 0.55, 1.0, 0.0);
+    this.voice('ae', 0.75, 235, 175, 0.6, 1.0, 0.22);
+  },
   // 決着の大太鼓
   boom() { this.tone(70, 1.1, 'sine', 1.0, 0, 34); this.noise(0.3, 180, 0.7, 0.6, 0, 'lowpass'); },
   shing() { this.tone(3000, 0.35, 'sine', 0.06, 0, 4200); this.noise(0.3, 6000, 4, 0.08, 0, 'bandpass', 9000); },
@@ -422,6 +436,8 @@ const BAKE = [
   ['chime', 0.5, (A) => A.chime(), 1],
   ['noto', 0.5, (A) => A.noto(), 1],
   ['boom', 1.2, (A) => A.boom(), 1],
+  ['warcry', 2.0, (A) => A.warcry(), 2],
+  ['command', 1.1, (A) => A.command(), 1],
   ['drum', 0.85, (A) => A.drum(0), 1],
   ['shout', 0.55, (A) => A.shout(), 1],
   ['gameover', 2.0, (A) => A.gameover(), 1],
@@ -518,6 +534,8 @@ export const Sfx = {
   chime(n) { this.play('chime', { rate: Math.pow(2, Math.min(5, n - 1) * 2 / 12), vary: 0 }); },
   noto() { this.play('noto', { delay: 0.25, vary: 0.02 }); },
   boom() { this.play('boom', { vary: 0 }); },
+  warcry(delay = 0) { this.play('warcry', { delay, vary: 0.03 }); },
+  command() { this.play('command', { vary: 0 }); },
   drum(delay = 0) { this.play('drum', { delay, vary: 0.02 }); },
   shout() { this.play('shout'); },
   gameover() { this.play('gameover', { vary: 0 }); },
