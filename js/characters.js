@@ -437,13 +437,14 @@ export class Character {
     if (!clip) return false;
     const from = o.from ?? 0, to = Math.min(clip.duration, o.to ?? clip.duration);
     this.mo = { clip, t: 0, from, to, dur: o.dur ?? (to - from), mirror: !!o.mirror, travel: o.travel ?? 0.3,
-      loop: !!o.loop, hold: !!o.hold, fadeIn: o.fadeIn ?? 0.07, fadeOut: o.fadeOut ?? 0.16, warp: o.warp || null };
+      loop: !!o.loop, hold: !!o.hold, fadeIn: o.fadeIn ?? 0.07, fadeOut: o.fadeOut ?? 0.16, warp: o.warp || null,
+      phase: o.phase || 0, fadeOutAt: 0 };
     return true;
   }
   stopMocap() { this.mo = null; this._moW = 0; }
   mocapClipTime() {
     const m = this.mo;
-    let u = m.dur > 0 ? m.t / m.dur : 1;
+    let u = m.dur > 0 ? (m.t + m.phase) / m.dur : 1;
     u = m.loop ? u % 1 : Math.min(1, u);
     if (m.warp) {
       const { u: wu, t: wt } = m.warp;
@@ -455,6 +456,7 @@ export class Character {
     const m = this.mo;
     let w = Math.min(1, m.t / Math.max(0.001, m.fadeIn));
     if (!m.loop && !m.hold) w *= Math.min(1, Math.max(0, (m.dur - m.t) / m.fadeOut));
+    if (m.fadeOutAt) w *= Math.max(0, (m.fadeOutAt - m.t) / 0.15);
     return w;
   }
 
@@ -747,10 +749,14 @@ export class Character {
     }
     // ---- モーションキャプチャ ----
     this._moW = 0;
+    // 構え（Great Sword Idle）：刀を持って立ち止まっている間は本物の構えで呼吸する
+    const wantStance = this.mode === 'ready' && this.walk < 0.25 && this.weaponType === 'katana' && CLIPS.idle;
+    if (wantStance && !this.mo) this.playMocap('idle', { loop: true, travel: 0, fadeIn: 0.3, phase: Math.random() * 2 });
+    if (!wantStance && this.mo && this.mo.clip.name === 'idle' && !this.mo.fadeOutAt) this.mo.fadeOutAt = this.mo.t + 0.15;
     if (this.mo) {
       this.mo.t += dt;
       const m = this.mo;
-      if (!m.loop && !m.hold && m.t >= m.dur) this.stopMocap();
+      if ((!m.loop && !m.hold && m.t >= m.dur) || (m.fadeOutAt && m.t >= m.fadeOutAt)) this.stopMocap();
       else { this._moW = this.mocapWeight(); this.applyMocap(this._moW); }
     }
     let deadHands = null;
@@ -847,6 +853,11 @@ export class Character {
     else {
       A.dir.subVectors(S.RightHand, S.RightForeArm).applyQuaternion(_qe).normalize();
       A.dir.y += 0.35; A.dir.normalize();
+    }
+    if (this.mo.clip.name === 'idle') {
+      // 大剣の構えを日本刀の中段に：剣先を正面（相手の喉元）へ向け、少し上げる
+      A.dir.x *= 0.2; A.dir.y += 0.15; A.dir.z = Math.abs(A.dir.z) + 0.3; A.dir.normalize();
+      this.head.quaternion.slerp(_qa.identity(), 0.55);   // うつむきすぎないよう視線を相手へ
     }
     A.grip.copy(A.R).addScaledVector(A.dir, -0.06);
   }
