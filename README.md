@@ -80,7 +80,9 @@ Capacitor でゲームのファイルをアプリに同梱しています（オ�
 
 - リリース画面（説明とビルド番号つき）：https://github.com/techgymjp/ako/releases/tag/android-latest
 - APK を直接ダウンロード：https://github.com/techgymjp/ako/releases/latest/download/ako.apk
-- スマホで読み取る QR コード：`docs/apk-qr.png`
+- スマホで読み取る QR コード（リリース画面が開きます）：
+
+  ![APK のリリース画面の QR コード](docs/apk-qr.png)
 
 GitHub Secrets（`ANDROID_KEYSTORE_BASE64` など 4 つ）を登録すると、Google Play 用の署名付き AAB（本番広告）も Artifact に作られます。
 
