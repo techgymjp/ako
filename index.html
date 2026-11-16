@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="description" content="雪の夜、大石内蔵助となって吉良邸に討ち入る3D剣戟ゲーム。フリックで斬れ。">
+<title>忠臣蔵 赤穂浪士の討ち入り</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@500;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script type="importmap">
+{ "imports": { "three": "./vendor/three.module.min.js" } }
+</script>
+</head>
+<body>
+<canvas id="game"></canvas>
+<canvas id="fx"></canvas>
+
+<!-- HUD -->
+<div id="hud">
+  <div class="loc"><span id="hudLoc"></span><div class="prog"><div id="hudProg"></div></div></div>
+  <div class="banner"><div id="hudMsg"></div><div id="hudSub"></div></div>
+  <div id="hudCombo"></div>
+  <div id="hudHint"></div>
+</div>
+
+<!-- タイトル -->
+<section id="title" class="overlay show">
+  <div class="panel">
+    <p class="sub">元禄十五年十二月十四日　雪の夜</p>
+    <h1><span>忠臣蔵</span>赤穂浪士の討ち入り</h1>
+    <div class="story">
+      <p>元禄十四年三月、江戸城松之大廊下。赤穂藩主・浅野内匠頭は高家・吉良上野介に斬りかかり、即日切腹を命じられた。吉良にお咎めはなかった。</p>
+      <p>それから一年九ヶ月——。筆頭家老・<b>大石内蔵助</b>は赤穂浪士を率い、本所松坂町の吉良邸へ討ち入る。</p>
+      <p>表門から屋敷の奥へ。立ちはだかる家臣を斬り伏せ、<b>吉良上野介</b>を討て。</p>
+    </div>
+    <div class="howto">
+      <div><b>斬る</b><span>敵の身体をなぞるように<em>フリック</em>。なぞった向きに刀を振る</span></div>
+      <div><b>連斬</b><span>一振りで複数の敵をなぞれば二人斬り・三人斬り</span></div>
+      <div><b>受け</b><span>刀を構えた敵は、<em>その刀と同じ向き</em>に斬ると弾かれる</span></div>
+      <div><b>一太刀</b><span>刀が<em>赤く光った</em>敵は斬りかかってくる。斬られたら終わり</span></div>
+    </div>
+    <button id="startBtn" class="btn">討ち入り</button>
+    <p class="best" id="bestTime"></p>
+  </div>
+</section>
+
+<!-- 結果 -->
+<section id="result" class="overlay">
+  <div class="panel">
+    <h2 id="resultTitle"></h2>
+    <div id="resultText" class="story"></div>
+    <dl id="resultStats" class="stats"></dl>
+    <div class="btns">
+      <button id="retryHere" class="btn">この場から</button>
+      <button id="retryBtn" class="btn ghost">最初から</button>
+    </div>
+  </div>
+</section>
+
+<!-- 一時停止 -->
+<section id="pause" class="overlay">
+  <div class="panel small">
+    <h2>一時停止</h2>
+    <button id="resumeBtn" class="btn">再開</button>
+  </div>
+</section>
+
+<button id="pauseBtn" aria-label="一時停止">❚❚</button>
+<button id="muteBtn" aria-label="音">♪</button>
+
+<noscript>このゲームを遊ぶにはJavaScriptを有効にしてください。</noscript>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
