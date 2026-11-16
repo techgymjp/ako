@@ -93,3 +93,27 @@ body.en .loc,body.en h3,body.en .sub{letter-spacing:.06em}
 .step b{display:block;font-size:clamp(19px,5vw,23px);color:#fff;margin-bottom:2px}
 .step p{margin:0;font-size:clamp(16px,4.2vw,18px);line-height:1.55;color:#e8dcc4}
 .howNote{font-size:14px;color:#9fb0c8;margin:0 0 16px}
+
+/* 夜明けまでの時間・得点・同志 */
+#hudDawn{position:absolute;left:50%;top:12px;transform:translateX(-50%);font-size:16px;font-weight:800;letter-spacing:.1em;
+  text-shadow:0 2px 6px #000;color:#e8dcc4;white-space:nowrap}
+#hudDawn.urgent{color:#ff8a7a;animation:blink 1s infinite}
+@keyframes blink{50%{opacity:.45}}
+.scorebox{position:absolute;right:12px;top:54px;text-align:right}
+#hudScore{font-size:22px;font-weight:800;color:#ffe08a;text-shadow:0 2px 6px #000}
+#hudScore.bump{animation:bump .3s ease-out}
+@keyframes bump{0%{transform:scale(1.35)}100%{transform:scale(1)}}
+#hudAllies{margin-top:4px;display:flex;gap:4px;justify-content:flex-end}
+#hudAllies i{width:12px;height:12px;border-radius:50%;background:#e9e5da;box-shadow:0 0 0 1px #000}
+#hudAllies i.hurt{background:#e0a050}
+#hudAllies i.down{background:#5a1a1a}
+@media (max-width:520px){#hudDawn{top:56px;font-size:14px}.scorebox{top:50px}}
+.stats dt.sep,.stats dd.sep{margin-top:8px;border-top:1px solid rgba(255,255,255,.15);padding-top:6px}
+.stats dt.total,.stats dd.total{font-size:22px;color:#ffe08a;margin-top:6px}
+#ranking{margin:0 auto 18px;max-width:340px;text-align:left}
+#ranking h3{text-align:center}
+#ranking ol{margin:0;padding-left:1.6em}
+#ranking li{padding:3px 0;border-bottom:1px dashed rgba(255,255,255,.12)}
+#ranking li span{font-weight:800;margin-right:8px}
+#ranking li small{color:#9fb0c8}
+#ranking li.me{color:#ffe08a}

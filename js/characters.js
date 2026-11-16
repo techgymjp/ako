@@ -294,6 +294,13 @@ export class Character {
       d.landed = true;
     }
   }
+  // やり直しで起き上がる
+  revive() {
+    if (this.dropped) { if (this.dropped.obj.parent) this.dropped.obj.parent.remove(this.dropped.obj); this.dropped = null; }
+    this.mode = 'ready'; this.modeT = 0; this.hitT = 0;
+    this.body.rotation.set(0, 0, 0); this.body.position.set(0, 0, 0);
+    this.weapon.visible = this.weaponType !== 'none';
+  }
   removeFrom(scene) {
     scene.remove(this.root);
     if (this.dropped) scene.remove(this.dropped.obj);

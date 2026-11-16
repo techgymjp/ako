@@ -45,6 +45,12 @@ const EN = {
   '剛斬！': 'Mighty Cut!', '浅い！': 'Too shallow!',
   '横一文字': 'Horizontal Cut', '斬り上げ': 'Rising Cut', '唐竹割り': 'Downward Cleave', '逆袈裟': 'Rising Diagonal', '袈裟斬り': 'Diagonal Cut',
   '受': 'GUARD', '制圧！': 'Cleared!',
+  '返し技！': 'Counter!', '返し技': 'Counter', '返せ！': 'Counter now!', '払え！': 'Sweep it!', '助太刀！': 'Help him!', '助太刀': 'Rescue',
+  '連斬': 'Multi-cut', '早業': 'Swift clear', 'やり直し': 'Retry', 'フェイント！': 'Feint!', '構え替え': 'Guard shift',
+  '夜が明けた……': 'Dawn has broken...', '吉良を討ち漏らした': 'Kira escaped your blade',
+  '東の空が白み始めた': 'The eastern sky grows pale', '夜明けまで、あと一刻もない！': 'Dawn is almost upon us!',
+  '<p>夜が明けてしまった。吉良上野介を討ち漏らした……。</p>': '<p>Dawn has broken. Kira Kōzuke-no-suke escaped your blade...</p>',
+  '吉田忠左衛門': 'Yoshida Chūzaemon', '堀部安兵衛': 'Horibe Yasubei', '原惣右衛門': 'Hara Sōemon', '間十次郎': 'Hazama Jūjirō', '武林唯七': 'Takebayashi Tadashichi',
   // 結果
   '<p>赤穂浪士四十七士は吉良上野介を討ち取り、主君・浅野内匠頭の無念を晴らした。</p><p>一行は雪の江戸の町を、亡君の眠る<b>泉岳寺</b>へと引き揚げていった。</p>':
     '<p>The forty-seven rōnin of Akō struck down Kira Kōzuke-no-suke and avenged their lord, Asano Takumi-no-kami.</p><p>Through the snowy streets of Edo they marched to <b>Sengaku-ji</b>, where their lord lies at rest.</p>',
@@ -61,10 +67,12 @@ const HTML_EN = {
   startBtn: 'Attack', howtoBtn: 'How to Play',
   howtoH2: 'How to Play',
   howtoStory: "Avenge your lord. Cut down Kira Kōzuke-no-suke.",
-  howtoList: '<div class="step"><i>進</i><div><b>You advance automatically</b><p>Ōishi moves deeper into the mansion. Cut down Kira at the end to win.</p></div></div>' +
+  howtoList: '<div class="step"><i>進</i><div><b>You advance automatically</b><p>Cut down Kira deep inside before dawn (7 minutes).</p></div></div>' +
     '<div class="step"><i>斬</i><div><b>Swipe to cut</b><p>Swipe across an enemy. Ōishi swings in that direction.</p></div></div>' +
     '<div class="step"><i>受</i><div><b>Avoid the dotted line</b><p>Cutting along the dotted GUARD line gets parried.</p></div></div>' +
-    '<div class="step"><i>危</i><div><b>Red glow = hurry</b><p>One hit and you are dead. Cut glowing enemies first.</p></div></div>',
+    '<div class="step"><i>危</i><div><b>Red glow = hurry</b><p>One hit and you are dead. Cut glowing enemies first.</p></div></div>' +
+    '<div class="step"><i>返</i><div><b>Gold arrow = counter</b><p>When the arrow turns gold, swipe that way for a counterattack.</p></div></div>' +
+    '<div class="step"><i>援</i><div><b>Protect your comrades</b><p>Cut enemies marked “Help him!”. Keep everyone alive for a big bonus.</p></div></div>',
   howtoNote: 'On a computer you can also cut with the arrow keys',
   howtoBack: 'Back', retryHere: 'Retry here', retryBtn: 'From the start', pauseH2: 'Paused', resumeBtn: 'Resume',
 };

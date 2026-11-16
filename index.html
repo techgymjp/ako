@@ -19,6 +19,8 @@
 <!-- HUD -->
 <div id="hud">
   <div class="loc"><span id="hudLoc"></span><div class="prog"><div id="hudProg"></div></div></div>
+  <div id="hudDawn"></div>
+  <div class="scorebox"><div id="hudScore">0</div><div id="hudAllies"></div></div>
   <div class="banner"><div id="hudMsg"></div><div id="hudSub"></div></div>
   <div id="hudCombo"></div>
   <div id="hudHint"></div>
@@ -51,10 +53,12 @@
     <h2 id="howtoH2">遊び方</h2>
     <p class="howLead" id="howtoStory">主君の仇・吉良上野介を討て。</p>
     <div class="steps" id="howtoList">
-      <div class="step"><i>進</i><div><b>自動で進む</b><p>大石は屋敷の奥へ進む。最後に吉良を斬れば勝ち。</p></div></div>
+      <div class="step"><i>進</i><div><b>自動で進む</b><p>夜明け（7分）までに奥の吉良を斬れば勝ち。</p></div></div>
       <div class="step"><i>斬</i><div><b>なぞって斬る</b><p>敵を指でなぞる。なぞった向きに刀を振る。</p></div></div>
       <div class="step"><i>受</i><div><b>点線の向きはダメ</b><p>「受」の点線と同じ向きに斬ると弾かれる。</p></div></div>
       <div class="step"><i>危</i><div><b>赤く光ったら急げ</b><p>斬られたら終わり。光った敵を先に斬れ。</p></div></div>
+      <div class="step"><i>返</i><div><b>金の矢印で返し技</b><p>矢印が金色になった瞬間、その向きになぞると大反撃。</p></div></div>
+      <div class="step"><i>援</i><div><b>同志を守る</b><p>「助太刀！」の敵を斬れ。全員生還で大きな得点。</p></div></div>
     </div>
     <p class="howNote" id="howtoNote">パソコンは矢印キーでも斬れます</p>
     <button id="howtoBack" class="btn">戻る</button>
@@ -67,6 +71,7 @@
     <h2 id="resultTitle"></h2>
     <div id="resultText" class="story"></div>
     <dl id="resultStats" class="stats"></dl>
+    <div id="ranking"></div>
     <div class="btns">
       <button id="retryHere" class="btn">この場から</button>
       <button id="retryBtn" class="btn ghost">最初から</button>

@@ -383,17 +383,17 @@ const STOPS = [
   { wp: 5, title: '槍の間', intro: '槍を構えた家臣が待ち受ける！', enemies: [
     { at: [950, 418], t: 's' }, { at: [972, 415], t: 's' }, { at: [992, 420], t: 's', ally: true }] },
   { wp: 7, title: '広間', enemies: [
-    { at: [865, 492], t: 'r2' }, { at: [920, 493], t: 'r2' }, { at: [860, 466], t: 'r' }, { at: [928, 462], t: 'r2', ally: true }] },
+    { at: [865, 492], t: 'k' }, { at: [920, 493], t: 'r2' }, { at: [860, 466], t: 'r' }, { at: [928, 462], t: 'r2', ally: true }] },
   { wp: 8, title: '通り道の間', enemies: [
-    { at: [756, 462], t: 'r2' }, { at: [760, 490], t: 's' }, { at: [782, 458], t: 'r' }, { at: [836, 490], t: 'r', ally: true }] },
+    { at: [756, 462], t: 'k' }, { at: [760, 490], t: 's' }, { at: [782, 458], t: 'r' }, { at: [836, 490], t: 'r', ally: true }] },
   { wp: 11, title: '左兵衛居間', intro: '吉良左兵衛の居間。家臣が立ち塞がる！', enemies: [
-    { at: [668, 497], t: 'r2' }, { at: [672, 535], t: 'r2' }, { at: [690, 540], t: 'r', ally: true }] },
+    { at: [668, 497], t: 'k' }, { at: [672, 535], t: 's' }, { at: [690, 540], t: 'r', ally: true }] },
   { wp: 12, title: '奥の間', intro: '吉良家家老・小林平八郎が立ちはだかる！', enemies: [
     { at: [545, 510], t: 'b1', name: '小林平八郎' }, { at: [560, 485], t: 'r2' }, { at: [560, 535], t: 'r2' },
     { at: [640, 540], t: 'r', ally: true }, { at: [645, 490], t: 'r', ally: true }] },
   { wp: 13, title: '上野介寝所', event: 'futon' },
   { wp: 14, title: '中の間', intro: '山吉新八郎、見参！', enemies: [
-    { at: [548, 418], t: 'b3', name: '山吉新八郎' }, { at: [560, 408], t: 'r2' }, { at: [630, 410], t: 's' }, { at: [650, 426], t: 'r', ally: true }] },
+    { at: [548, 418], t: 'b3', name: '山吉新八郎' }, { at: [560, 408], t: 'k' }, { at: [630, 410], t: 's' }, { at: [650, 426], t: 'r', ally: true }] },
   { wp: 17, title: '土間', intro: '剣の達人・清水一学が斬りかかる！', enemies: [
     { at: [456, 416], t: 'b2', name: '清水一学' }, { at: [470, 405], t: 'r2' }, { at: [522, 426], t: 'r', ally: true }] },
   { wp: 18, title: '炭部屋', event: 'finale', enemies: [
@@ -401,14 +401,19 @@ const STOPS = [
 ];
 STOPS.forEach((st) => { st.s = railLen[st.wp]; });
 
+// feint: 振りかぶって途中でやめる確率 / shift: 構えを変える間隔(秒) / thrust: 槍の突き
 const ETYPES = {
   r: { outfit: 'retainer', hp: 1, guard: false, speed: 2.6, windup: 1.15 },
-  r2: { outfit: 'retainer2', hp: 1, guard: true, speed: 2.5, windup: 1.05 },
-  s: { outfit: 'retainer', hp: 1, guard: true, speed: 2.2, windup: 1.15, weapon: 'spear', range: 2.6 },
-  b1: { outfit: 'boss1', hp: 3, guard: true, speed: 2.8, windup: 0.95, boss: true },
-  b2: { outfit: 'boss2', hp: 4, guard: true, speed: 3.0, windup: 0.85, boss: true },
-  b3: { outfit: 'boss3', hp: 2, guard: true, speed: 2.8, windup: 0.95, boss: true },
+  r2: { outfit: 'retainer2', hp: 1, guard: true, speed: 2.5, windup: 1.05, feint: 0.12 },
+  k: { outfit: 'retainer2', hp: 1, guard: true, speed: 2.7, windup: 1.0, feint: 0.3, shift: 1.6, name: '剣客' },
+  s: { outfit: 'retainer', hp: 1, guard: true, speed: 2.2, windup: 1.05, weapon: 'spear', range: 3.0, thrust: true },
+  b1: { outfit: 'boss1', hp: 3, guard: true, speed: 2.8, windup: 0.95, boss: true, feint: 0.3, shift: 2.2 },
+  b2: { outfit: 'boss2', hp: 4, guard: true, speed: 3.0, windup: 0.85, boss: true, feint: 0.4, shift: 1.5 },
+  b3: { outfit: 'boss3', hp: 2, guard: true, speed: 2.8, windup: 0.95, boss: true, feint: 0.25, shift: 2.4 },
 };
+const COUNTER_WIN = 0.42;   // 返し技を受け付ける時間（斬撃の直前）
+const DAWN = 420;           // 夜明けまで（秒）
+const STRIKE_DIRS = [[0, -1], [0.7, -0.7], [-0.7, -0.7], [1, 0], [-1, 0]];
 const GUARD_ANGLES = [0, Math.PI / 2, Math.PI / 4, -Math.PI / 4];
 
 // =====================================================================
@@ -420,7 +425,7 @@ const ALLY_NAMES = ['吉田忠左衛門', '堀部安兵衛', '原惣右衛門', 
 const allies = ALLY_NAMES.map((n, i) => {
   const c = new Character('ronin', { name: n, lantern: i === 0, weapon: i === 3 ? 'spear' : 'katana' });
   scene.add(c.root);
-  return { ch: c, i, duel: null, duelT: 0 };
+  return { ch: c, i, name: n, duel: null, duelT: 0, hp: 2, down: false };
 });
 
 let enemies = [];
@@ -436,10 +441,11 @@ const G = {
   slowmo: 1, camShake: 0, redFlash: 0, whiteFlash: 0,
   room: null, lastRoomName: '', facing: 0, tutorialShown: false,
   prevState: null,
+  score: 0, counters: 0, scoreParts: { kill: 0, counter: 0, clear: 0 }, stopStartT: 0, snap: null, dawnShown: false,
 };
 
 const $ = (id) => document.getElementById(id);
-const hud = { loc: $('hudLoc'), prog: $('hudProg'), msg: $('hudMsg'), sub: $('hudSub'), combo: $('hudCombo'), hint: $('hudHint') };
+const hud = { dawn: $('hudDawn'), score: $('hudScore'), allies: $('hudAllies'), loc: $('hudLoc'), prog: $('hudProg'), msg: $('hudMsg'), sub: $('hudSub'), combo: $('hudCombo'), hint: $('hudHint') };
 let msgTimer = 0;
 function banner(text, sub = '', dur = 2.4) {
   hud.msg.textContent = T(text); hud.sub.textContent = T(sub);
@@ -468,8 +474,8 @@ function spawnStop(st) {
     scene.add(ch.root);
     enemies.push({
       ch, def, ty, stop: st, hp: ty.hp, maxHp: ty.hp, ally: !!def.ally, alive: true,
-      state: 'wait', t: 0, guard: null, slot: null, duelT: 3 + Math.random() * 3, swingT: Math.random(),
-      cutId: -1, deadT: 0,
+      state: 'wait', t: 0, guard: null, slot: null, duelT: 6 + Math.random() * 3, swingT: Math.random(),
+      cutId: -1, deadT: 0, nextShift: 0, strikeDir: null, feint: false, allyAtkT: 1.5 + Math.random() * 2, allyWind: -1,
     });
   }
   st.spawned = true;
@@ -493,10 +499,12 @@ function engageStop(st) {
   let si = 0, ai = 0;
   for (const e of foes) {
     e.state = 'approach'; e.t = -0.25 * i++;
-    if (e.ally) {
-      e.duelAlly = allies[(ai++ + 1) % allies.length];
+    const standing = allies.filter((a) => !a.down && !a.duel);
+    if (e.ally && standing.length) {
+      e.duelAlly = standing[(ai++ + 1) % standing.length];
       e.duelAlly.duel = e;
     } else {
+      e.ally = false;
       const a = G.facing + slotAngles[si++ % slotAngles.length];
       const r = e.ty.range || 1.9;
       e.slot = new THREE.Vector3(player.pos.x + Math.sin(a) * r, 0, player.pos.z + Math.cos(a) * r);
@@ -510,6 +518,51 @@ function pickGuard(e) {
   let g;
   do { g = GUARD_ANGLES[Math.floor(Math.random() * GUARD_ANGLES.length)]; } while (g === e.guard && Math.random() < 0.8);
   return g;
+}
+
+function startWindup(e) {
+  e.state = 'windup'; e.t = 0; e.windup = e.ty.windup * (G.stopIdx === 0 ? 1.3 : 1);
+  e.feint = G.stopIdx >= 2 && Math.random() < (e.ty.feint || 0);
+  if (e.ty.thrust) e.strikeDir = null;
+  else { const d = STRIKE_DIRS[Math.floor(Math.random() * STRIKE_DIRS.length)]; e.strikeDir = { x: d[0], y: d[1] }; }
+  Sfx.shing();
+  if (Math.random() < 0.6) Sfx.growl();
+}
+
+// 同志が斬られる
+function woundAlly(al, e) {
+  al.hp--;
+  al.ch.hit(0.6, -0.8);
+  al.ch.chestWorld(_v); woundFx(_v, { x: 0.6, y: -0.8 }, 0.5);
+  Sfx.cut(0.6); Sfx.groan();
+  if (al.hp <= 0) {
+    al.down = true; al.duel = null;
+    al.ch.die('down', 1);
+    banner(lang === 'en' ? `${T(al.name)} is cut down!` : al.name + '、斬られる！', '', 1.8);
+    // 同志を斬った敵は大石に向かってくる
+    e.ally = false; e.duelAlly = null;
+    e.slot = new THREE.Vector3().subVectors(e.ch.pos, player.pos).setY(0).normalize().multiplyScalar(1.9).add(player.pos);
+    clampToRoom(G.room, e.slot, 0.5);
+    e.state = 'approach'; e.t = 0;
+  } else {
+    comboText(lang === 'en' ? `${T(al.name)} wounded!` : al.name + '手傷！');
+  }
+  updateAlliesHud();
+}
+
+// 得点
+const popups = [];
+function addScore(pts, label, worldPos) {
+  if (!pts) return;
+  G.score = Math.max(0, G.score + pts);
+  hud.score.textContent = G.score.toLocaleString();
+  hud.score.classList.remove('bump'); void hud.score.offsetWidth; hud.score.classList.add('bump');
+  let x = innerWidth / 2, y = innerHeight * 0.32;
+  if (worldPos) { const sp = screenOf(worldPos); x = sp.x; y = sp.y - 70; }
+  popups.push({ x, y, text: `${pts > 0 ? '+' : ''}${pts}${label ? ' ' + T(label) : ''}`, t: performance.now(), neg: pts < 0 });
+}
+function updateAlliesHud() {
+  hud.allies.innerHTML = allies.map((a) => `<i class="${a.down ? 'down' : a.hp < 2 ? 'hurt' : ''}"></i>`).join('');
 }
 
 function anyAttacking() { return enemies.some((e) => e.alive && (e.state === 'windup' || e.state === 'strike')); }
@@ -530,6 +583,8 @@ function updateEnemy(e, dt) {
     return;
   }
   e.t += dt;
+  if (e.shiftFlash > 0) e.shiftFlash -= dt;
+  if (e.feintFlash > 0) e.feintFlash -= dt;
   if (e.kb) {
     const k = Math.min(1, dt * 8);
     e.ch.pos.addScaledVector(e.kb, k);
@@ -575,26 +630,32 @@ function updateEnemy(e, dt) {
       ch.walk = THREE.MathUtils.lerp(ch.walk, 0, 0.2);
       ch.faceTo(player.pos.x, player.pos.z, 1, dt);
       if (e.guard !== null) { ch.setMode('guard'); ch.guardAngle = e.guard; } else ch.setMode('ready');
-      if (e.t > e.wait && G.attackCD <= 0 && !anyAttacking() && G.state === 'fight') {
-        e.state = 'windup'; e.t = 0; e.windup = e.ty.windup * (G.stopIdx === 0 ? 1.3 : 1);
-        Sfx.shing();
-        if (Math.random() < 0.6) Sfx.growl();
+      // 剣客や強敵は構えを途中で変える
+      if (e.ty.shift && e.t > e.nextShift) {
+        if (e.nextShift > 0) { e.guard = pickGuard(e); e.shiftFlash = 0.35; Sfx.clatter(); }
+        e.nextShift = e.t + e.ty.shift * (0.7 + Math.random() * 0.6);
       }
+      if (e.t > e.wait && G.attackCD <= 0 && !anyAttacking() && G.state === 'fight') startWindup(e);
       break;
     }
     case 'windup': {
       ch.faceTo(player.pos.x, player.pos.z, 1, dt);
       ch.setMode('windup');
       ch.setGlint(Math.min(1, e.t / e.windup));
+      // フェイント：振りかぶったと見せて構えに戻る
+      if (e.feint && e.t > e.windup * 0.55) {
+        e.feint = false; e.state = 'guard'; e.t = 0; e.guard = pickGuard(e) ?? 0; e.wait = 0.5 + Math.random() * 0.5;
+        e.feintFlash = 0.8; ch.setGlint(0); G.attackCD = 0.3;
+        break;
+      }
       // 間合いを詰める
       _v.subVectors(ch.pos, player.pos).setY(0);
       const want = (e.ty.range || 1.9) * 0.82;
       if (_v.length() > want) moveTo(_v2.copy(player.pos).add(_v.normalize().multiplyScalar(want)), 1.5);
       if (e.t >= e.windup) {
-        e.state = 'strike'; e.t = 0;
-        const dirs = [[0, -1], [0.7, -0.7], [-0.7, -0.7], [1, 0]];
-        const d = dirs[Math.floor(Math.random() * dirs.length)];
-        ch.startSlash(d[0], d[1], 0.45);
+        e.state = 'strike'; e.t = 0; e.struck = false;
+        const d = e.strikeDir || { x: 0, y: -1 };
+        ch.startSlash(d.x, d.y, 0.45);
         Sfx.swing(); Sfx.roar();
       }
       break;
@@ -614,9 +675,23 @@ function updateEnemy(e, dt) {
       break;
     }
     case 'duel': {
-      // 同志と斬り結ぶ
-      const a = e.duelAlly.ch;
+      // 同志と斬り結ぶ。時々同志に斬りかかる（助太刀しないと同志が斬られる）
+      const al = e.duelAlly, a = al.ch;
       ch.faceTo(a.pos.x, a.pos.z, 1, dt); ch.walk = 0;
+      if (e.allyWind >= 0) {
+        e.allyWind += dt;
+        ch.setMode('windup'); ch.setGlint(Math.min(1, e.allyWind / 1.5));
+        if (e.allyWind >= 1.5) {
+          e.allyWind = -1; ch.setGlint(0);
+          ch.startSlash(0.5, -0.8, 0.45); Sfx.swing();
+          later(0.12, () => { if (e.alive && !al.down) woundAlly(al, e); });
+          e.allyAtkT = 2.5 + Math.random() * 2;
+        }
+        break;
+      }
+      if (ch.mode === 'windup') ch.setMode('ready');
+      e.allyAtkT -= dt;
+      if (e.allyAtkT <= 0 && G.state === 'fight') { e.allyWind = 0; Sfx.shing(); break; }
       e.swingT -= dt;
       if (e.swingT <= 0) {
         e.swingT = 0.7 + Math.random() * 0.6;
@@ -743,7 +818,10 @@ function processSegment(a, b) {
   if (speed < 0.45 || swipe.blocked) return;
   const dir = swipeDir();
   let hitAny = false;
-  for (const e of cuttables()) {
+  // 斬りかかってくる敵（返し技の対象）を先に判定する
+  const pri = (e) => (e.state === 'windup' || e.state === 'strike' ? 0 : e.allyWind >= 0 ? 1 : 2);
+  const list = cuttables().sort((p, q) => pri(p) - pri(q));
+  for (const e of list) {
     if (e.cutId === swipe.id) continue;
     const dist = e.ch.pos.distanceTo(player.pos);
     if (dist > 6.5) continue;
@@ -793,6 +871,11 @@ function doCut(e, dir, speed) {
   if (swipe.cuts === 0 && (speed > 2.6 || Math.random() < 0.6)) Sfx.kiai(speed > 2.6);
 
   const sAng = Math.atan2(dir.y, dir.x);
+  // 返し技：斬りかかる直前に、斬撃と逆向きにフリック（槍の突きは横に払う）
+  if (e !== kira && (e.state === 'windup' && e.t >= e.windup - COUNTER_WIN && !e.feint || e.state === 'strike' && e.t < 0.1)) {
+    const ok = e.ty.thrust ? Math.abs(dir.y) < 0.55 : (dir.x * e.strikeDir.x + dir.y * e.strikeDir.y) < -0.5;
+    if (ok) { doCounter(e, dir); return; }
+  }
   if (e !== kira && e.state === 'guard' && e.guard !== null && angleDiffMod180(sAng, e.guard) < 0.5) {
     // 受け止められた
     swipe.blocked = true;
@@ -823,6 +906,10 @@ function doCut(e, dir, speed) {
     if (e.hp <= 0) {
       killEnemy(e, player, false, dir);
       slayFx(e, dir, combo, dmg === 2);
+      const pts = (100 + (dmg === 2 ? 50 : 0) + (e.duelAlly ? 50 : 0)) * combo;
+      e.ch.chestWorld(_v2);
+      addScore(pts, combo >= 2 ? '連斬' : e.duelAlly ? '助太刀' : '', _v2);
+      G.scoreParts.kill += pts;
       if (combo >= 2) { comboText(['', '', '二人斬り！', '三人斬り！', '四人斬り！', '五人斬り！'][Math.min(5, combo)]); G.maxCombo = Math.max(G.maxCombo, combo); }
       else comboText(dmg === 2 ? '剛斬！' : slashName(dir));
     } else {
@@ -835,6 +922,30 @@ function doCut(e, dir, speed) {
       e.ch.setGlint(0);
     }
   } });
+}
+
+function doCounter(e, dir) {
+  swipe.cuts++;
+  e.state = 'stagger'; e.t = -0.3; e.ch.setGlint(0); e.struck = true;
+  G.slowmo = 0.25; G.counters++;
+  later(0.1, () => {
+    if (!e.alive) return;
+    Sfx.clang(1); Sfx.slay();
+    e.ch.chestWorld(_v2); emitSparks(_v2, 34, 0xffe08a, 6);
+    e.hp -= 2;
+    e.ch.hit(dir.x, dir.y);
+    if (e.hp <= 0) {
+      killEnemy(e, player, false, dir);
+      slayFx(e, dir, 1, true);
+    } else {
+      e.kb = new THREE.Vector3().subVectors(e.ch.pos, player.pos).setY(0).normalize().multiplyScalar(0.7);
+      woundFx(_v2, dir, 0.6);
+    }
+    comboText('返し技！');
+    e.ch.chestWorld(_v2);
+    addScore(300, '返し技', _v2);
+    G.scoreParts.counter += 300;
+  });
 }
 
 function slashName(dir) {
@@ -870,7 +981,7 @@ addEventListener('keydown', (ev) => {
   let cx = innerWidth / 2, cy = innerHeight / 2;
   if (list.length) {
     list.sort((p, q) => p.ch.pos.distanceTo(player.pos) - q.ch.pos.distanceTo(player.pos));
-    const target = list.find((e) => e.state === 'windup') || list[0];
+    const target = list.find((e) => e.state === 'windup') || list.find((e) => e.allyWind >= 0) || list[0];
     const sr = screenRadius(target.ch);
     cx = sr.x; cy = sr.y;
   }
@@ -894,7 +1005,11 @@ function resetAll() {
   if (kira) { kira.ch.removeFrom(scene); kira = null; }
   clearBlood();
   STOPS.forEach((s) => { s.spawned = false; s.done = false; });
-  Object.assign(G, { s: 0, stopIdx: 0, playTime: 0, kills: 0, retries: 0, maxCombo: 0, blocks: 0, slowmo: 1, redFlash: 0, whiteFlash: 0, attackCD: 0, lastRoomName: '' });
+  Object.assign(G, { s: 0, stopIdx: 0, playTime: 0, kills: 0, retries: 0, maxCombo: 0, blocks: 0, slowmo: 1, redFlash: 0, whiteFlash: 0, attackCD: 0, lastRoomName: '',
+    score: 0, counters: 0, scoreParts: { kill: 0, counter: 0, clear: 0 }, stopStartT: 0, snap: null, dawnShown: false });
+  allies.forEach((a) => { if (a.down) a.ch.revive(); a.hp = 2; a.down = false; a.duel = null; });
+  hud.score.textContent = '0';
+  updateAlliesHud();
   player.mode = 'ready'; player.body.rotation.set(0, 0, 0);
   placeAtRail(0);
 }
@@ -905,6 +1020,7 @@ function placeAtRail(s) {
   player.setYaw(Math.atan2(dir.x, dir.z));
   G.facing = player.facingYaw;
   allies.forEach((a, i) => {
+    if (a.down) return;
     const back = s - 4.4 - i * 1.0;
     const ap = railAt(back, new THREE.Vector3());
     railDirSmooth(Math.max(0, back), tmpDir);
@@ -938,6 +1054,12 @@ function retryStop() {
   // 次の場面の先行配置も消す
   STOPS.forEach((s, i) => { if (i > G.stopIdx && s.spawned) clearStopEnemies(s); });
   G.retries++;
+  if (G.snap) {
+    G.score = G.snap.score; G.scoreParts = { ...G.snap.parts }; G.kills = G.snap.kills; G.counters = G.snap.counters;
+    allies.forEach((a, i) => { const sa = G.snap.allies[i]; a.hp = sa.hp; if (a.down && !sa.down) a.ch.revive(); a.down = sa.down; });
+  }
+  addScore(-300, 'やり直し');
+  updateAlliesHud();
   player.mode = 'ready'; player.body.rotation.set(0, 0, 0); player.body.position.set(0, 0, 0);
   placeAtRail(Math.max(0, st.s - 4));
   G.slowmo = 1; G.redFlash = 0; G.attackCD = 1;
@@ -961,9 +1083,11 @@ function arriveStop(st) {
     banner('炭俵の陰に人の気配……', '曲者が潜んでおるぞ！', 2.2);
     st.eventEnd = 1.6;
     st.thenFight = true;
+    takeSnapshot();
     return;
   }
   G.state = 'fight';
+  takeSnapshot();
   if (st.intro) banner(st.title, st.intro, 2.2);
   if (st.enemies && st.enemies.some((d) => d.name)) Sfx.bossRoar();
   else banner(st.title, '', 1.6);
@@ -975,12 +1099,19 @@ function arriveStop(st) {
   }
 }
 
+function takeSnapshot() {
+  G.stopStartT = G.playTime;
+  G.snap = { score: G.score, parts: { ...G.scoreParts }, kills: G.kills, counters: G.counters, allies: allies.map((a) => ({ hp: a.hp, down: a.down })) };
+}
+
 function stopCleared(st) {
   st.done = true;
   if (st.event === 'finale') { revealKira(); return; }
   hint('');
   G.state = 'walk';
   Sfx.boom(); Sfx.noto();
+  const bonus = Math.max(0, Math.round(500 - 25 * (G.playTime - G.stopStartT)));
+  if (bonus) { later(1.0, () => addScore(bonus, '早業')); G.scoreParts.clear += bonus; }
   later(0.8, () => comboText('制圧！'));
   G.stopIdx++;
 }
@@ -1005,6 +1136,24 @@ function revealKira() {
   });
 }
 
+function finalBonus() {
+  const alive = allies.filter((a) => !a.down).length;
+  const allyPts = alive * 500 + (alive === allies.length ? 2000 : 0);
+  const timePts = Math.max(0, Math.floor(DAWN - G.playTime)) * 5;
+  G.score += allyPts + timePts;
+  hud.score.textContent = G.score.toLocaleString();
+  return { alive, allyPts, timePts };
+}
+
+function dawnOver() {
+  G.state = 'dead'; G.stateT = 0;
+  G.slowmo = 0.5;
+  Sfx.gameover();
+  banner('夜が明けた……', '吉良を討ち漏らした', 3.5);
+  hint('');
+  later(1.2, () => showResult(false, true));
+}
+
 function finishKira() {
   if (!kira || !kira.alive) return;
   kira.alive = false;
@@ -1017,33 +1166,56 @@ function finishKira() {
   Sfx.drum(0.6); Sfx.drum(1.2); Sfx.drum(1.7);
   hint('');
   banner('本懐成就', '元禄十五年十二月十五日　未明', 4);
+  G.finalBonus = finalBonus();
   later(0.9, () => showResult(true));
 }
 
-function showResult(win) {
+function loadRanking() { try { return JSON.parse(localStorage.getItem('ako-rank') || '[]'); } catch (e) { return []; } }
+function saveRanking(list) { try { localStorage.setItem('ako-rank', JSON.stringify(list)); } catch (e) { /* 保存不可 */ } }
+
+function showResult(win, dawn = false) {
   const t = G.playTime;
+  const en = lang === 'en';
   const mm = Math.floor(t / 60), ss = Math.floor(t % 60);
   $('resultTitle').textContent = T(win ? '本懐成就' : '無念');
   $('resultText').innerHTML = T(win
     ? '<p>赤穂浪士四十七士は吉良上野介を討ち取り、主君・浅野内匠頭の無念を晴らした。</p><p>一行は雪の江戸の町を、亡君の眠る<b>泉岳寺</b>へと引き揚げていった。</p>'
-    : '<p>大石内蔵助は敵の刃に倒れた……。</p><p>刀が赤く光った敵を先に斬れ。構えた刀と同じ向きに斬ると弾かれるぞ。</p>');
-  const rank = T(!win ? '' : G.retries === 0 && t < 240 ? '天晴れ　義士の鑑' : G.retries <= 2 ? '見事なり' : '本懐を遂げたり');
-  const en = lang === 'en';
+    : dawn ? '<p>夜が明けてしまった。吉良上野介を討ち漏らした……。</p>'
+      : '<p>大石内蔵助は敵の刃に倒れた……。</p><p>刀が赤く光った敵を先に斬れ。構えた刀と同じ向きに斬ると弾かれるぞ。</p>');
   const time = en ? `${mm}m ${String(ss).padStart(2, '0')}s` : `${mm}分${String(ss).padStart(2, '0')}秒`;
-  $('resultStats').innerHTML =
-    `<dt>${en ? 'Time' : '討ち入り時間'}</dt><dd>${time}</dd>` +
-    `<dt>${en ? 'Enemies cut down' : '斬り伏せた敵'}</dt><dd>${G.kills}${en ? '' : '人'}</dd>` +
-    `<dt>${en ? 'Best multi-cut' : '最大連斬'}</dt><dd>${G.maxCombo || 1}${en ? '' : '人'}</dd>` +
-    `<dt>${en ? 'Retries' : 'やり直し'}</dt><dd>${G.retries}${en ? '' : '回'}</dd>` +
-    (win ? `<dt>${en ? 'Rating' : '評価'}</dt><dd>${rank}</dd>` : '');
-  $('retryHere').style.display = win ? 'none' : '';
-  $('result').classList.add('show');
-  if (win) {
-    try {
-      const best = +localStorage.getItem('ako-best') || Infinity;
-      if (t < best) localStorage.setItem('ako-best', String(t));
-    } catch (e) { /* 保存不可 */ }
+  const fb = G.finalBonus || { alive: allies.filter((a) => !a.down).length, allyPts: 0, timePts: 0 };
+  const P_ = G.scoreParts;
+  const row = (ja, enL, v) => `<dt>${en ? enL : ja}</dt><dd>${v}</dd>`;
+  let html = row('討ち入り時間', 'Time', time) +
+    row('斬り伏せた敵', 'Enemies cut down', G.kills + (en ? '' : '人')) +
+    row('返し技', 'Counters', G.counters + (en ? '' : '回')) +
+    row('最大連斬', 'Best multi-cut', (G.maxCombo || 1) + (en ? '' : '人')) +
+    row('生還した同志', 'Comrades alive', `${fb.alive} / ${allies.length}`) +
+    row('やり直し', 'Retries', G.retries + (en ? '' : '回'));
+  html += `<dt class="sep">${en ? 'Swordplay' : '剣技'}</dt><dd class="sep">${(P_.kill + P_.counter).toLocaleString()}</dd>` +
+    row('早業', 'Speed', P_.clear.toLocaleString());
+  if (win) html += row(fb.alive === allies.length ? '同志（全員生還）' : '同志', fb.alive === allies.length ? 'Comrades (all alive)' : 'Comrades', fb.allyPts.toLocaleString()) +
+    row('夜明けまでの余裕', 'Time to dawn', fb.timePts.toLocaleString());
+  html += `<dt class="total">${en ? 'Score' : '得点'}</dt><dd class="total">${G.score.toLocaleString()}</dd>`;
+  const rank = !win ? '' : G.score >= 12000 ? '天晴れ　義士の鑑' : G.score >= 7000 ? '見事なり' : '本懐を遂げたり';
+  if (win) html += row('評価', 'Rating', T(rank));
+  $('resultStats').innerHTML = html;
+
+  // ランキング（この端末に上位10件）
+  let list = loadRanking(), mine = -1;
+  if (win || dawn) {
+    const entry = { score: G.score, time: Math.round(t), win, d: new Date().toISOString().slice(0, 10) };
+    list.push(entry);
+    list.sort((a, b) => b.score - a.score);
+    list = list.slice(0, 10);
+    mine = list.indexOf(entry);
+    saveRanking(list);
   }
+  $('ranking').innerHTML = list.length ? `<h3>${en ? 'Ranking (this device)' : 'ランキング（この端末）'}</h3><ol>` + list.slice(0, 5).map((r, i) =>
+    `<li class="${i === mine ? 'me' : ''}"><span>${r.score.toLocaleString()}</span><small>${r.win ? (en ? 'Vengeance' : '本懐') : (en ? 'Dawn' : '夜明け')} · ${Math.floor(r.time / 60)}:${String(r.time % 60).padStart(2, '0')} · ${r.d}</small></li>`).join('') + '</ol>' : '';
+  $('retryHere').style.display = win || dawn ? 'none' : '';
+  $('result').classList.add('show');
+  showBest();
 }
 
 function togglePause() {
@@ -1062,13 +1234,9 @@ $('resumeBtn').onclick = togglePause;
 $('pauseBtn').onclick = togglePause;
 $('muteBtn').onclick = () => { $('muteBtn').classList.toggle('off', Sfx.toggle()); };
 function showBest() {
-  try {
-    const best = +localStorage.getItem('ako-best');
-    if (best) {
-      const m = Math.floor(best / 60), sec = String(Math.floor(best % 60)).padStart(2, '0');
-      $('bestTime').textContent = lang === 'en' ? `Fastest vengeance: ${m}m ${sec}s` : `最速の本懐成就：${m}分${sec}秒`;
-    }
-  } catch (e) { /* 保存不可 */ }
+  const list = loadRanking();
+  const best = list[0];
+  $('bestTime').textContent = best ? (lang === 'en' ? `Best score: ${best.score.toLocaleString()}` : `最高得点：${best.score.toLocaleString()}`) : '';
 }
 applyStatic();
 showBest();
@@ -1087,7 +1255,11 @@ function update(dt) {
   G.slowmo = Math.min(1, G.slowmo + dt * 0.5);
   dt *= G.slowmo;
   G.stateT += dt;
-  if (['walk', 'fight', 'event', 'kira'].includes(G.state)) G.playTime += dt;
+  if (['walk', 'fight', 'event', 'kira'].includes(G.state)) {
+    G.playTime += dt;
+    if (G.playTime >= DAWN && G.state !== 'kira') { dawnOver(); }
+  }
+  updateDawn();
   G.attackCD = Math.max(0, G.attackCD - dt);
 
   for (let i = pendingCuts.length - 1; i >= 0; i--) {
@@ -1143,8 +1315,9 @@ function update(dt) {
   // ---- 同志 ----
   allies.forEach((a, i) => {
     const ch = a.ch;
+    if (a.down) { ch.update(dt); return; }
     let target;
-    if (a.duel && a.duel.alive && a.duel.state === 'duel') {
+    if (a.duel && a.duel.alive && a.duel.state === 'duel' && a.duel.duelAlly === a) {
       target = null;
       ch.faceTo(a.duel.ch.pos.x, a.duel.ch.pos.z, 1, dt);
       ch.walk = THREE.MathUtils.lerp(ch.walk, 0, 0.2);
@@ -1225,6 +1398,24 @@ function update(dt) {
   if (comboTimer <= 0) hud.combo.classList.remove('pop');
 }
 
+// 夜明けが近づくと空と霧が白んでいく
+const fogNight = new THREE.Color(0x0c1424), fogDawn = new THREE.Color(0x5a5470);
+let lastDawnSec = -1;
+function updateDawn() {
+  const r = THREE.MathUtils.clamp((G.playTime / DAWN - 0.45) / 0.55, 0, 1);
+  scene.fog.color.copy(fogNight).lerp(fogDawn, r * r);
+  hemi.intensity = 0.55 + r * 0.6;
+  scene.backgroundIntensity = 1 + r * 1.6;
+  const left = Math.max(0, Math.ceil(DAWN - G.playTime));
+  if (left !== lastDawnSec && document.body.classList.contains('playing')) {
+    lastDawnSec = left;
+    const m = Math.floor(left / 60), sec = String(left % 60).padStart(2, '0');
+    hud.dawn.textContent = (lang === 'en' ? 'Dawn in ' : '夜明けまで ') + `${m}:${sec}`;
+    hud.dawn.classList.toggle('urgent', left <= 60);
+    if (left === 60 && !G.dawnShown) { G.dawnShown = true; banner('東の空が白み始めた', '夜明けまで、あと一刻もない！', 2); }
+  }
+}
+
 function musicFor() {
   switch (G.state) {
     case 'title': return 'title';
@@ -1288,6 +1479,59 @@ function updateCamera(dt) {
 // =====================================================================
 // 2Dオーバーレイ（なぞった残光・構え・危険表示）
 // =====================================================================
+// 斬りかかってくる向きの矢印。返し技の好機には金色になる
+function drawStrikeArrow(e, sr, r) {
+  const win = e.t >= e.windup - COUNTER_WIN;
+  const col = win ? 'rgba(255,215,90,.95)' : `rgba(255,70,50,${0.35 + 0.4 * e.t / e.windup})`;
+  octx.save();
+  octx.translate(sr.x, sr.y);
+  octx.strokeStyle = col; octx.fillStyle = col; octx.lineWidth = win ? 5 : 3;
+  const L = r * 1.7;
+  const arrow = (dx, dy) => {
+    const ang = Math.atan2(-dy, dx);
+    octx.save(); octx.rotate(ang);
+    octx.beginPath(); octx.moveTo(-L, 0); octx.lineTo(L, 0); octx.stroke();
+    octx.beginPath(); octx.moveTo(L + 8, 0); octx.lineTo(L - 12, -10); octx.lineTo(L - 12, 10); octx.fill();
+    octx.restore();
+  };
+  if (e.ty.thrust) {
+    // 槍の突き：横に払え
+    if (win) { arrow(1, 0); arrow(-1, 0); }
+    else { octx.beginPath(); octx.arc(0, 0, r * 0.6, 0, Math.PI * 2); octx.stroke(); }
+  } else if (win) arrow(-e.strikeDir.x, -e.strikeDir.y);   // 返す向き
+  else arrow(e.strikeDir.x, e.strikeDir.y);                // 敵が斬ってくる向き
+  octx.restore();
+  if (win) {
+    octx.fillStyle = 'rgba(255,225,120,.98)'; octx.font = `800 ${Math.round(r * 0.75)}px "Shippori Mincho", serif`; octx.textAlign = 'center';
+    octx.fillText(T(e.ty.thrust ? '払え！' : '返せ！'), sr.x, sr.y + r * 2.4);
+  }
+}
+function drawAllyDanger(e) {
+  e.ch.root.updateMatrixWorld(true);
+  const sr = screenRadius(e.ch, 0.42);
+  if (sr.z > 1) return;
+  const r = Math.max(sr.r, 22), k = Math.min(1, e.allyWind / 1.5);
+  // 画面外なら端に寄せて知らせる
+  sr.x = THREE.MathUtils.clamp(sr.x, 60, innerWidth - 60); sr.y = THREE.MathUtils.clamp(sr.y, 110, innerHeight - 60);
+  octx.strokeStyle = `rgba(255,90,60,${0.5 + 0.5 * k})`; octx.lineWidth = 3 + 3 * k;
+  octx.beginPath(); octx.arc(sr.x, sr.y, r * (2.4 - 1.2 * k), 0, Math.PI * 2); octx.stroke();
+  octx.fillStyle = '#ffb08a'; octx.font = `800 ${Math.max(14, Math.round(r * 0.6))}px "Shippori Mincho", serif`; octx.textAlign = 'center';
+  octx.fillText(T('助太刀！'), sr.x, sr.y - r * 2.4);
+}
+function drawPopups(now) {
+  for (let i = popups.length - 1; i >= 0; i--) {
+    const p = popups[i], age = (now - p.t) / 1000;
+    if (age > 1.1) { popups.splice(i, 1); continue; }
+    octx.globalAlpha = age < 0.8 ? 1 : 1 - (age - 0.8) / 0.3;
+    octx.font = '800 20px "Shippori Mincho", serif'; octx.textAlign = 'center';
+    octx.lineWidth = 4; octx.strokeStyle = 'rgba(0,0,0,.7)';
+    octx.strokeText(p.text, p.x, p.y - age * 40);
+    octx.fillStyle = p.neg ? '#ff8080' : '#ffe08a';
+    octx.fillText(p.text, p.x, p.y - age * 40);
+    octx.globalAlpha = 1;
+  }
+}
+
 function drawOverlay() {
   const dpr = devicePixelRatio;
   octx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -1297,6 +1541,7 @@ function drawOverlay() {
   // 構えと振りかぶりの表示
   if (G.state === 'fight' || G.state === 'kira' || G.state === 'event') {
     for (const e of enemies) {
+      if (e.alive && e.ally && e.state === 'duel' && e.allyWind >= 0) drawAllyDanger(e);
       if (!e.alive || e.ally || e.state === 'wait') continue;
       e.ch.root.updateMatrixWorld(true);
       const sr = screenRadius(e.ch, 0.42);
@@ -1314,7 +1559,12 @@ function drawOverlay() {
         octx.restore();
         octx.fillStyle = 'rgba(200,225,255,.85)'; octx.font = `bold ${Math.round(r * 0.5)}px "Shippori Mincho", serif`;
         octx.textAlign = 'center'; octx.fillText(T('受'), sr.x + r * 1.1, sr.y - r * 1.4);
+        if (e.shiftFlash > 0 || e.feintFlash > 0) {
+          octx.fillStyle = 'rgba(255,230,160,.95)'; octx.font = `800 ${Math.round(r * 0.55)}px "Shippori Mincho", serif`;
+          octx.fillText(T(e.feintFlash > 0 ? 'フェイント！' : '構え替え'), sr.x, sr.y + r * 2.3);
+        }
       }
+      if (e.state === 'windup' && !e.feint) drawStrikeArrow(e, sr, r);
       if (e.state === 'windup') {
         const k = Math.min(1, e.t / e.windup);
         octx.strokeStyle = `rgba(255,${80 - 60 * k},${60 - 50 * k},${0.5 + 0.5 * k})`;
@@ -1344,6 +1594,7 @@ function drawOverlay() {
   }
 
   drawSlayFx(now);
+  drawPopups(now);
 
   // なぞった軌跡（刀光）
   while (trailPts.length && now - trailPts[0].t > 220) trailPts.shift();
