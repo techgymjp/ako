@@ -70,12 +70,14 @@ composer.addPass(new OutputPass());
 const overlay = document.getElementById('fx');
 const octx = overlay.getContext('2d');
 
+let baseFov = 58;
 function resize() {
   const w = innerWidth, h = innerHeight;
   renderer.setSize(w, h, false);
   if (typeof composer !== 'undefined') { composer.setPixelRatio(quality.pixelRatio); composer.setSize(w, h); }
   camera.aspect = w / h;
   camera.fov = w < h ? 72 : 58;
+  baseFov = camera.fov;
   camera.updateProjectionMatrix();
   overlay.width = w * devicePixelRatio; overlay.height = h * devicePixelRatio;
   overlay.style.width = w + 'px'; overlay.style.height = h + 'px';
@@ -244,6 +246,63 @@ function woundFx(p, dir, k = 1) {
   emitSparks(p, Math.round(8 * k), 0xff4a3a, 2.5);
   // 倒れた後に亡骸の下へ血だまり
 }
+// ---- 斬った手応えの演出 ----
+const strokes = [];   // 画面を走る斬線
+const stamps = [];    // 「斬」の印
+function slayFx(e, dir, combo, strong) {
+  Sfx.slay();
+  if (combo >= 2) Sfx.chime(combo);
+  e.ch.root.updateMatrixWorld(true);
+  e.ch.chestWorld(_v);
+  const sp = screenOf(_v);
+  const now = performance.now();
+  const ang = Math.atan2(dir.y, dir.x);
+  strokes.push({ x: sp.x, y: sp.y, ang, len: Math.max(innerWidth, innerHeight) * (strong ? 0.75 : 0.55), t: now, w: strong ? 18 : 12 });
+  stamps.push({ x: sp.x + 40 * (Math.random() < 0.5 ? 1 : -1), y: sp.y - 60, t: now, rot: (Math.random() - 0.5) * 0.4, n: combo });
+  G.hitStop = Math.max(G.hitStop || 0, strong || combo >= 2 ? 0.12 : 0.08);
+  G.whiteFlash = Math.max(G.whiteFlash, combo >= 2 || strong ? 0.35 : 0.18);
+  G.fovKick = 1;
+  G.camShake = Math.max(G.camShake, strong ? 0.3 : 0.18);
+}
+function drawSlayFx(now) {
+  for (let i = strokes.length - 1; i >= 0; i--) {
+    const st = strokes[i];
+    const age = (now - st.t) / 1000;
+    if (age > 0.55) { strokes.splice(i, 1); continue; }
+    const grow = Math.min(1, age / 0.06);
+    const fade = age < 0.1 ? 1 : Math.max(0, 1 - (age - 0.1) / 0.45);
+    const L = st.len * grow, W = st.w * (1 + age * 1.5);
+    octx.save();
+    octx.translate(st.x, st.y);
+    octx.rotate(-st.ang);
+    const lens = (w) => { octx.beginPath(); octx.moveTo(-L, 0); octx.quadraticCurveTo(0, -w, L, 0); octx.quadraticCurveTo(0, w, -L, 0); octx.fill(); };
+    octx.shadowColor = 'rgba(255,40,30,.9)'; octx.shadowBlur = 24;
+    octx.fillStyle = `rgba(200,20,20,${0.55 * fade})`; lens(W);
+    octx.shadowBlur = 0;
+    octx.fillStyle = `rgba(255,245,235,${fade})`; lens(W * 0.3);
+    // 飛沫
+    octx.fillStyle = `rgba(150,10,10,${0.8 * fade})`;
+    for (let k = 0; k < 6; k++) { const x = (k / 5 - 0.5) * L * 1.2, y = Math.sin(k * 7.3) * W * 1.6; octx.beginPath(); octx.arc(x, y, 2 + (k % 3) * 1.5, 0, Math.PI * 2); octx.fill(); }
+    octx.restore();
+  }
+  for (let i = stamps.length - 1; i >= 0; i--) {
+    const sp = stamps[i];
+    const age = (now - sp.t) / 1000;
+    if (age > 0.9) { stamps.splice(i, 1); continue; }
+    const sc = age < 0.08 ? 1.8 - age * 10 : 1;
+    const a = age < 0.55 ? 1 : Math.max(0, 1 - (age - 0.55) / 0.35);
+    const S = 46;
+    octx.save();
+    octx.translate(sp.x, sp.y); octx.rotate(sp.rot); octx.scale(sc, sc);
+    octx.globalAlpha = a;
+    octx.fillStyle = '#b3261e'; octx.strokeStyle = '#fff'; octx.lineWidth = 2;
+    octx.beginPath(); octx.roundRect(-S / 2, -S / 2, S, S, 6); octx.fill(); octx.stroke();
+    octx.fillStyle = '#fff'; octx.font = `800 ${S * 0.72}px "Shippori Mincho", serif`; octx.textAlign = 'center'; octx.textBaseline = 'middle';
+    octx.fillText('斬', 0, 2);
+    octx.restore();
+  }
+}
+
 function updateSlashMarks(dt) {
   for (let i = slashMarks.length - 1; i >= 0; i--) {
     const s = slashMarks[i];
@@ -763,6 +822,7 @@ function doCut(e, dir, speed) {
     G.hitStop = 0.05;
     if (e.hp <= 0) {
       killEnemy(e, player, false, dir);
+      slayFx(e, dir, combo, dmg === 2);
       if (combo >= 2) { comboText(['', '', '二人斬り！', '三人斬り！', '四人斬り！', '五人斬り！'][Math.min(5, combo)]); G.maxCombo = Math.max(G.maxCombo, combo); }
       else comboText(dmg === 2 ? '剛斬！' : slashName(dir));
     } else {
@@ -920,7 +980,8 @@ function stopCleared(st) {
   if (st.event === 'finale') { revealKira(); return; }
   hint('');
   G.state = 'walk';
-  Sfx.drum(0.2);
+  Sfx.boom(); Sfx.noto();
+  later(0.8, () => comboText('制圧！'));
   G.stopIdx++;
 }
 
@@ -1216,6 +1277,12 @@ function updateCamera(dt) {
     camera.position.y += (Math.random() - 0.5) * G.camShake * 0.4;
   }
   camera.lookAt(camLookCur);
+  // 斬った瞬間にぐっと寄る
+  if (G.fovKick > 0.001 || camera.fov !== baseFov) {
+    G.fovKick = Math.max(0, (G.fovKick || 0) - dt * 5);
+    camera.fov = baseFov - 5 * Math.sin(G.fovKick * Math.PI * 0.5);
+    camera.updateProjectionMatrix();
+  }
 }
 
 // =====================================================================
@@ -1275,6 +1342,8 @@ function drawOverlay() {
       octx.fillText(T('吉良上野介'), sr.x, sr.y - Math.max(sr.r, 30) * 2.3);
     }
   }
+
+  drawSlayFx(now);
 
   // なぞった軌跡（刀光）
   while (trailPts.length && now - trailPts[0].t > 220) trailPts.shift();
@@ -1364,4 +1433,4 @@ boot();
 function sim(sec, step = 1 / 30) {
   for (let t = 0; t < sec; t += step) { update(step); scene.updateMatrixWorld(); camera.updateMatrixWorld(); }
 }
-window.__ako = { sim, G, STOPS, enemies: () => enemies, player, startGame, retryStop, camera, kira: () => kira, RAIL_TOTAL };
+window.__ako = { fx: () => ({ strokes: strokes.length, stamps: stamps.length }), sim, G, STOPS, enemies: () => enemies, player, startGame, retryStop, camera, kira: () => kira, RAIL_TOTAL };

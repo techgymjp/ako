@@ -120,6 +120,22 @@ const Synth = {
     this.noise(0.06, 5000, 1, 0.3 * k);
   },
   clatter() { this.tone(2400, 0.18, 'triangle', 0.08); this.tone(3700, 0.12, 'sine', 0.05, 0.03); this.noise(0.05, 4000, 2, 0.12); this.tone(2100, 0.12, 'triangle', 0.05, 0.12); },
+  // 斬り伏せた音：空気を裂く音＋刃鳴り＋重い手応え
+  slay() {
+    this.noise(0.09, 7000, 0.7, 0.55, 0, 'highpass');
+    this.noise(0.16, 1800, 1.2, 0.45, 0, 'bandpass', 5200);
+    this.tone(3150, 0.75, 'sine', 0.09, 0.015); this.tone(4730, 0.55, 'sine', 0.06, 0.015); this.tone(6290, 0.35, 'sine', 0.035, 0.015);
+    this.tone(95, 0.22, 'sine', 0.7, 0.01, 45); this.noise(0.18, 300, 0.8, 0.45, 0.01, 'lowpass');
+  },
+  // 連斬の響き（再生速度で音程を上げる）
+  chime() { this.tone(1320, 0.4, 'sine', 0.12); this.tone(1980, 0.35, 'sine', 0.08, 0.01); this.tone(2640, 0.25, 'triangle', 0.04, 0.02); },
+  // 納刀「チャキン」
+  noto() {
+    this.noise(0.22, 2500, 2, 0.12, 0, 'bandpass', 4200);
+    this.tone(2650, 0.12, 'triangle', 0.16, 0.24); this.tone(5300, 0.1, 'sine', 0.08, 0.24); this.noise(0.03, 6000, 1, 0.25, 0.24, 'highpass');
+  },
+  // 決着の大太鼓
+  boom() { this.tone(70, 1.1, 'sine', 1.0, 0, 34); this.noise(0.3, 180, 0.7, 0.6, 0, 'lowpass'); },
   shing() { this.tone(3000, 0.35, 'sine', 0.06, 0, 4200); this.noise(0.3, 6000, 4, 0.08, 0, 'bandpass', 9000); },
   drum(delay = 0) {
     this.tone(85, 0.7, 'sine', 0.9, delay, 42);
@@ -402,6 +418,10 @@ const BAKE = [
   ['clangSoft', 0.7, (A) => A.clang(0.4), 1],
   ['clatter', 0.35, (A) => A.clatter(), 1],
   ['shing', 0.45, (A) => A.shing(), 1],
+  ['slay', 0.9, (A) => A.slay(), 2],
+  ['chime', 0.5, (A) => A.chime(), 1],
+  ['noto', 0.5, (A) => A.noto(), 1],
+  ['boom', 1.2, (A) => A.boom(), 1],
   ['drum', 0.85, (A) => A.drum(0), 1],
   ['shout', 0.55, (A) => A.shout(), 1],
   ['gameover', 2.0, (A) => A.gameover(), 1],
@@ -494,6 +514,10 @@ export const Sfx = {
   clang(k = 1) { this.play(k < 0.7 ? 'clangSoft' : 'clang', { vary: 0.04 }); },
   clatter() { this.play('clatter', { vary: 0.15 }); },
   shing() { this.play('shing'); },
+  slay() { this.play('slay', { vary: 0.05 }); },
+  chime(n) { this.play('chime', { rate: Math.pow(2, Math.min(5, n - 1) * 2 / 12), vary: 0 }); },
+  noto() { this.play('noto', { delay: 0.25, vary: 0.02 }); },
+  boom() { this.play('boom', { vary: 0 }); },
   drum(delay = 0) { this.play('drum', { delay, vary: 0.02 }); },
   shout() { this.play('shout'); },
   gameover() { this.play('gameover', { vary: 0 }); },

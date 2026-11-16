@@ -83,3 +83,13 @@ body.en .loc,body.en h3,body.en .sub{letter-spacing:.06em}
 .bar{height:4px;background:rgba(255,255,255,.15);width:100%}
 #loadBar{height:100%;width:0;background:var(--red);box-shadow:0 0 8px var(--red);transition:width .2s}
 .loadMsg{font-size:13px;color:#9fb0c8;margin-top:10px;letter-spacing:.1em}
+
+/* 遊び方：大きな字で4項目 */
+.howLead{font-size:clamp(18px,4.6vw,22px);margin:0 0 18px;color:#e8dcc4}
+.steps{display:flex;flex-direction:column;gap:12px;margin:0 0 14px;text-align:left}
+.step{display:flex;gap:14px;align-items:center;background:rgba(0,0,0,.45);border-left:4px solid var(--red);padding:12px 14px}
+.step i{flex:none;width:52px;height:52px;border-radius:50%;background:var(--red);color:#fff;font-style:normal;font-weight:800;
+  font-size:28px;display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 2px #fff inset}
+.step b{display:block;font-size:clamp(19px,5vw,23px);color:#fff;margin-bottom:2px}
+.step p{margin:0;font-size:clamp(16px,4.2vw,18px);line-height:1.55;color:#e8dcc4}
+.howNote{font-size:14px;color:#9fb0c8;margin:0 0 16px}

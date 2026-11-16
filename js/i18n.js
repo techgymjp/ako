@@ -44,7 +44,7 @@ const EN = {
   '弾かれた！': 'Parried!', '二人斬り！': 'Double Cut!', '三人斬り！': 'Triple Cut!', '四人斬り！': 'Quad Cut!', '五人斬り！': 'Five-Man Cut!',
   '剛斬！': 'Mighty Cut!', '浅い！': 'Too shallow!',
   '横一文字': 'Horizontal Cut', '斬り上げ': 'Rising Cut', '唐竹割り': 'Downward Cleave', '逆袈裟': 'Rising Diagonal', '袈裟斬り': 'Diagonal Cut',
-  '受': 'GUARD',
+  '受': 'GUARD', '制圧！': 'Cleared!',
   // 結果
   '<p>赤穂浪士四十七士は吉良上野介を討ち取り、主君・浅野内匠頭の無念を晴らした。</p><p>一行は雪の江戸の町を、亡君の眠る<b>泉岳寺</b>へと引き揚げていった。</p>':
     '<p>The forty-seven rōnin of Akō struck down Kira Kōzuke-no-suke and avenged their lord, Asano Takumi-no-kami.</p><p>Through the snowy streets of Edo they marched to <b>Sengaku-ji</b>, where their lord lies at rest.</p>',
@@ -59,17 +59,13 @@ const HTML_EN = {
   titleH1: '<span>Chūshingura</span>The Revenge of the 47 Rōnin',
   titleLead: 'Become Ōishi Kuranosuke and storm Kira\'s mansion.<br>Your only target: Kira Kōzuke-no-suke.',
   startBtn: 'Attack', howtoBtn: 'How to Play',
-  howtoH2: 'How to Play', howtoStoryH: 'Story', howtoFlowH: 'Progress', howtoCtrlH: 'Controls',
-  howtoStory: '<p>March 1701, the Pine Corridor of Edo Castle. Asano Takumi-no-kami, lord of Akō, drew his sword on the court official Kira Kōzuke-no-suke and was ordered to commit seppuku that same day. Kira went unpunished.</p><p>Twenty-one months later, chief retainer <b>Ōishi Kuranosuke</b> leads the rōnin of Akō against Kira\'s mansion in Honjo, Edo.</p>',
-  howtoFlow: '<p>Ōishi <b>advances automatically</b> from the front gate deep into the mansion — through the entrance, the Spear Room, the Great Hall, the Inner Chamber and Kira\'s bedchamber. Find <b>Kira Kōzuke-no-suke</b> hiding in the charcoal shed and cut him down to fulfil your vengeance.</p>',
-  howtoList: '<div><b>Cut</b><span><em>Flick</em> across an enemy\'s body (drag with a mouse). Ōishi swings in the direction you flick</span></div>' +
-    '<div><b>Techniques</b><span>Sideways = horizontal cut, top→bottom = cleave, bottom→top = rising cut, diagonal = kesa cut</span></div>' +
-    '<div><b>Multi-cut</b><span>Trace several enemies in one flick for a double or triple cut</span></div>' +
-    '<div><b>Mighty cut</b><span>A fast, long flick wounds even strong foes deeply</span></div>' +
-    '<div><b>Guard</b><span>Guarding enemies show a dotted line and “GUARD”. Cutting <em>in the same direction</em> is parried and invites a counter</span></div>' +
-    '<div><b>One strike</b><span>A blade <em>glowing red</em> with a shrinking ring means an attack is coming. If you are cut, the game is over</span></div>' +
-    '<div><b>Keyboard</b><span>Arrow keys (WASD) cut the nearest enemy in that direction. Esc / P to pause</span></div>' +
-    '<div><b>Retry</b><span>If you fall, “Retry here” restarts the current fight</span></div>',
+  howtoH2: 'How to Play',
+  howtoStory: "Avenge your lord. Cut down Kira Kōzuke-no-suke.",
+  howtoList: '<div class="step"><i>進</i><div><b>You advance automatically</b><p>Ōishi moves deeper into the mansion. Cut down Kira at the end to win.</p></div></div>' +
+    '<div class="step"><i>斬</i><div><b>Swipe to cut</b><p>Swipe across an enemy. Ōishi swings in that direction.</p></div></div>' +
+    '<div class="step"><i>受</i><div><b>Avoid the dotted line</b><p>Cutting along the dotted GUARD line gets parried.</p></div></div>' +
+    '<div class="step"><i>危</i><div><b>Red glow = hurry</b><p>One hit and you are dead. Cut glowing enemies first.</p></div></div>',
+  howtoNote: 'On a computer you can also cut with the arrow keys',
   howtoBack: 'Back', retryHere: 'Retry here', retryBtn: 'From the start', pauseH2: 'Paused', resumeBtn: 'Resume',
 };
 
