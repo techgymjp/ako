@@ -419,8 +419,20 @@ const ETYPES = {
   b2: { outfit: 'boss2', hp: 4, guard: true, speed: 3.0, windup: 0.85, boss: true, feint: 0.4, shift: 1.5 },
   b3: { outfit: 'boss3', hp: 2, guard: true, speed: 2.8, windup: 0.95, boss: true, feint: 0.25, shift: 2.4 },
 };
-const COUNTER_WIN = 0.55;   // 返し技を受け付ける時間（斬撃の直前）
-const WINDUP_OPEN = 0.35;   // 振りかぶりの初めのこの割合までは、普通に斬れば止められる
+// 難しさ（自動操作で腕前の違うプレイヤーを再現して決めた値）
+const DIFF = {
+  windupMul: 0.55,       // 振りかぶりの長さの倍率
+  open: 0.2,          // 振りかぶりの初めのこの割合までは「隙」：普通に斬れば止められる
+  counterWin: 0.35,   // 返し技を受け付ける時間（斬撃の直前、秒）
+  counterDot: -0.75,  // 返し技の向きの許容（-1 に近いほど厳しい）
+  attackers: 2,       // 同時に斬りかかってくる敵の数（4場面目から）
+  gap: 0,             // 斬撃のあと次の敵が斬りかかるまでの間（秒）
+  waitBase: 0.4, waitRand: 0.6,  // 構えてから斬りかかるまでの時間
+  redo: 1,            // やり直しの回数
+  bossHp: 2,          // 強敵の体力の倍率
+  hp: 2,              // ふつうの家臣の体力（何太刀で倒れるか）
+  guardTol: 0.9,      // 受けの構えで弾かれる向きの幅（ラジアン）
+};
 const DAWN = 420;           // 夜明けまで（秒）
 const STRIKE_DIRS = [[0, -1], [0.7, -0.7], [-0.7, -0.7], [1, 0], [-1, 0]];
 const GUARD_ANGLES = [0, Math.PI / 2, Math.PI / 4, -Math.PI / 4];
@@ -483,7 +495,7 @@ function spawnStop(st) {
     ch.setMode('ready');
     scene.add(ch.root);
     enemies.push({
-      ch, def, ty, stop: st, hp: ty.hp, maxHp: ty.hp, ally: !!def.ally, alive: true,
+      ch, def, ty, stop: st, hp: ty.boss ? Math.round(ty.hp * DIFF.bossHp) : Math.max(ty.hp, DIFF.hp), maxHp: ty.boss ? Math.round(ty.hp * DIFF.bossHp) : Math.max(ty.hp, DIFF.hp), ally: !!def.ally, alive: true,
       state: 'wait', t: 0, guard: null, slot: null, duelT: 6 + Math.random() * 3, swingT: Math.random(),
       cutId: -1, deadT: 0, nextShift: 0, strikeDir: null, feint: false, allyAtkT: 1.5 + Math.random() * 2, allyWind: -1,
     });
@@ -531,7 +543,7 @@ function pickGuard(e) {
 }
 
 function startWindup(e) {
-  e.state = 'windup'; e.t = 0; e.windup = e.ty.windup * (G.stopIdx === 0 ? 1.3 : 1);
+  e.state = 'windup'; e.t = 0; e.windup = e.ty.windup * (G.stopIdx === 0 ? 1.3 : DIFF.windupMul);
   e.feint = G.stopIdx >= 2 && Math.random() < (e.ty.feint || 0);
   if (e.ty.thrust) e.strikeDir = null;
   else { const d = STRIKE_DIRS[Math.floor(Math.random() * STRIKE_DIRS.length)]; e.strikeDir = { x: d[0], y: d[1] }; }
@@ -594,7 +606,10 @@ function focusFoe() {
     || live.sort((a, b) => d(a) - d(b))[0];
 }
 
-function anyAttacking() { return enemies.some((e) => e.alive && (e.state === 'windup' || e.state === 'strike')); }
+function anyAttacking() {
+  const n = enemies.filter((e) => e.alive && !e.ally && (e.state === 'windup' || e.state === 'strike')).length;
+  return n >= (G.stopIdx >= 3 ? DIFF.attackers : 1);
+}
 
 function updateEnemy(e, dt) {
   const ch = e.ch;
@@ -650,7 +665,7 @@ function updateEnemy(e, dt) {
         ch.faceTo(player.pos.x, player.pos.z, 1, dt);
         if (d < 0.15) {
           e.state = 'guard'; e.t = 0; e.guard = pickGuard(e);
-          e.wait = (G.stopIdx === 0 ? 2.6 : 1.1) + Math.random() * 1.4;
+          e.wait = (G.stopIdx === 0 ? 2.6 : DIFF.waitBase) + Math.random() * DIFF.waitRand;
         }
       }
       break;
@@ -683,6 +698,7 @@ function updateEnemy(e, dt) {
       if (_v.length() > want) moveTo(_v2.copy(player.pos).add(_v.normalize().multiplyScalar(want)), 1.5);
       if (e.t >= e.windup) {
         e.state = 'strike'; e.t = 0; e.struck = false;
+        G.attackCD = Math.max(G.attackCD, DIFF.gap);
         const d = e.strikeDir || { x: 0, y: -1 };
         ch.startSlash(d.x, d.y, 0.45);
         Sfx.swing(); Sfx.roar();
@@ -700,7 +716,7 @@ function updateEnemy(e, dt) {
     case 'stagger': {
       ch.setGlint(0);
       ch.walk = 0;
-      if (e.t > 0.55) { e.state = 'guard'; e.t = 0; e.guard = pickGuard(e); e.wait = 0.9 + Math.random() * 1.2; }
+      if (e.t > 0.55) { e.state = 'guard'; e.t = 0; e.guard = pickGuard(e); e.wait = DIFF.waitBase * 0.8 + Math.random() * DIFF.waitRand; G.attackCD = Math.max(G.attackCD, DIFF.gap); }
       break;
     }
     case 'duel': {
@@ -925,13 +941,13 @@ function doCut(e, dir, speed) {
 
   const sAng = Math.atan2(dir.y, dir.x);
   // 返し技：斬りかかる直前に、斬撃と逆向きにフリック（槍の突きは横に払う）
-  if (e !== kira && (e.state === 'windup' && e.t >= e.windup - COUNTER_WIN && !e.feint || e.state === 'strike' && e.t < 0.1)) {
+  if (e !== kira && (e.state === 'windup' && e.t >= e.windup - DIFF.counterWin && !e.feint || e.state === 'strike' && e.t < 0.1)) {
     const sd = e.strikeDir || { x: 0, y: -1 };
-    const ok = e.ty.thrust ? Math.abs(dir.y) < 0.6 : (dir.x * sd.x + dir.y * sd.y) < -0.35;
+    const ok = e.ty.thrust ? Math.abs(dir.y) < 0.6 : (dir.x * sd.x + dir.y * sd.y) < DIFF.counterDot;
     if (ok) { if (swipe.cuts === 0) G.hits++; doCounter(e, dir); return; }
   }
   // 刀を振り上げた後の敵には、普通に斬っても受け止められる（止めるなら振りかぶりの初めか、返し技）
-  if (e !== kira && ((e.state === 'windup' && !e.feint && e.t >= e.windup * WINDUP_OPEN) || e.state === 'strike')) {
+  if (e !== kira && ((e.state === 'windup' && !e.feint && e.t >= e.windup * DIFF.open) || e.state === 'strike')) {
     swipe.blocked = true;
     later(0.13, () => {
       Sfx.clang(0.8);
@@ -941,7 +957,7 @@ function doCut(e, dir, speed) {
     });
     return;
   }
-  if (e !== kira && e.state === 'guard' && e.guard !== null && angleDiffMod180(sAng, e.guard) < 0.5) {
+  if (e !== kira && e.state === 'guard' && e.guard !== null && angleDiffMod180(sAng, e.guard) < DIFF.guardTol) {
     // 受け止められた
     swipe.blocked = true;
     pendingCuts.push({ t: 0.13, fn: () => {
@@ -1251,7 +1267,7 @@ function showResult(win, dawn = false) {
     ? '<p>赤穂浪士四十七士は吉良上野介を討ち取り、主君・浅野内匠頭の無念を晴らした。</p><p>一行は雪の江戸の町を、亡君の眠る<b>泉岳寺</b>へと引き揚げていった。</p>'
     : dawn ? '<p>夜が明けてしまった。吉良上野介を討ち漏らした……。</p>'
       : '<p>大石内蔵助は敵の刃に倒れた……。</p><p>刀が赤く光った敵を先に斬れ。構えた刀と同じ向きに斬ると弾かれるぞ。</p>')
-    + (!win && !dawn && G.retries >= REDO_MAX ? (lang === 'en' ? '<p>No retries left (5 per raid).</p>' : '<p>やり直しは使い切った（1回の討ち入りで5回まで）。</p>') : '');
+    + (!win && !dawn && G.retries >= DIFF.redo ? (lang === 'en' ? `<p>No retries left (${DIFF.redo} per raid).</p>` : `<p>やり直しは使い切った（1回の討ち入りで${DIFF.redo}回まで）。</p>`) : '');
   const time = en ? `${mm}m ${String(ss).padStart(2, '0')}s` : `${mm}分${String(ss).padStart(2, '0')}秒`;
   const fb = G.finalBonus || { alive: allies.filter((a) => !a.down).length, allyPts: 0, timePts: 0 };
   const P_ = G.scoreParts;
@@ -1286,7 +1302,7 @@ function showResult(win, dawn = false) {
   $('ranking').innerHTML = list.length ? `<h3>${en ? 'Ranking (this device)' : 'ランキング（この端末）'}</h3><ol>` + list.slice(0, 5).map((r, i) =>
     `<li class="${i === mine ? 'me' : ''}"><span>${r.score.toLocaleString()}</span><small>${r.win ? (en ? 'Vengeance' : '本懐') : (en ? 'Dawn' : '夜明け')} · ${Math.floor(r.time / 60)}:${String(r.time % 60).padStart(2, '0')} · ${r.d}</small></li>`).join('') + '</ol>' : '';
   // web-only:start
-  if ($('retryHere')) $('retryHere').style.display = win || dawn || G.retries >= REDO_MAX ? 'none' : '';
+  if ($('retryHere')) $('retryHere').style.display = win || dawn || G.retries >= DIFF.redo ? 'none' : '';
   // web-only:end
   G.lastResult = { win, dawn };
   $('result').classList.add('show');
@@ -1346,14 +1362,13 @@ function goTitle() {
 const withAd = (fn) => async () => { Ads.setBanner(false); await Ads.showInterstitial(3000); fn(); };
 
 // リワード広告：斬られたら、広告を見てこの戦いからやり直せる（1 回の討ち入りで 5 回まで）
-const REDO_MAX = 5;
-const canRevive = () => Ads.canReward && G.retries < REDO_MAX;
+const canRevive = () => Ads.canReward && G.retries < DIFF.redo;
 let reviveTimer = null;
 function offerRevive() {
   // 斬られた様子を見届けてから案内を出し、数秒で自動的に結果へ進む
   later(1.6, () => {
     if (G.state !== 'dead') return;
-    const left = REDO_MAX - G.retries;
+    const left = DIFF.redo - G.retries;
     $('reviveText').textContent = lang === 'en' ? `Watch an ad to retry this fight? (${left} left)` : `広告を見て、この戦いからやり直しますか？（残り ${left} 回）`;
     $('revive').classList.add('show');
     const t0 = performance.now(), LIMIT = 6000;
@@ -1728,7 +1743,7 @@ function updateCamera(dt) {
 // 斬りかかってくる向きの矢印。返し技の好機には金色になる
 function drawStrikeArrow(e, sr, r) {
   if (!e.ty.thrust && !e.strikeDir) e.strikeDir = { x: 0, y: -1 };
-  const win = e.t >= e.windup - COUNTER_WIN;
+  const win = e.t >= e.windup - DIFF.counterWin;
   const col = win ? 'rgba(255,215,90,.95)' : `rgba(255,70,50,${0.35 + 0.4 * e.t / e.windup})`;
   octx.save();
   octx.translate(sr.x, sr.y);
@@ -1812,7 +1827,7 @@ function drawOverlay() {
         }
       }
       if (e.state === 'windup' && !e.feint) drawStrikeArrow(e, sr, r);
-      if (e.state === 'windup' && !e.feint && e.t < e.windup * WINDUP_OPEN) {
+      if (e.state === 'windup' && !e.feint && e.t < e.windup * DIFF.open) {
         // 振りかぶり始めは隙：普通に斬れば止められる
         octx.fillStyle = 'rgba(255,255,255,.95)'; octx.font = `800 ${Math.round(r * 0.7)}px "Shippori Mincho", serif`; octx.textAlign = 'center';
         octx.fillText(T('隙！'), sr.x, sr.y + r * 2.4);
@@ -1973,5 +1988,5 @@ function testSwipe(x0, y0, x1, y1, ms = 90) {
   }
   onUp();
 }
-window.__ako = { swipe: testSwipe, screenOf: (v) => screenOf(v), renderer, fx: () => ({ strokes: strokes.length, stamps: stamps.length }), sim, G, STOPS, enemies: () => enemies, player, startGame, retryStop, camera, kira: () => kira, RAIL_TOTAL };
+window.__ako = { DIFF, swipe: testSwipe, screenOf: (v) => screenOf(v), renderer, fx: () => ({ strokes: strokes.length, stamps: stamps.length }), sim, G, STOPS, enemies: () => enemies, player, startGame, retryStop, camera, kira: () => kira, RAIL_TOTAL };
 // web-only:end
