@@ -11,7 +11,7 @@ const NAMES = ['Hips', 'Spine', 'Spine2', 'Neck', 'Head', 'HeadTop_End', 'LeftSh
 const MIRROR = NAMES.map((n) => NAMES.indexOf(n.startsWith('Left') ? n.replace('Left', 'Right') : n.startsWith('Right') ? n.replace('Right', 'Left') : n));
 
 // 斬撃の「当たる瞬間」（右手が体の中心を横切るフレーム）
-const CONTACT = { slash_great: 13, slash_sweep: 18, slash_spin: 26 };
+const CONTACT = { slash_great: 13, slash_sweep: 18, slash_spin: 26, slash_inward: 36 };
 
 export async function loadMocap(names, base = 'assets/mocap/') {
   await Promise.all(names.map(async (name) => {
@@ -32,7 +32,10 @@ export async function loadMocap(names, base = 'assets/mocap/') {
         pos[o + 2] = (row[j * 3 + 2] - h0[hj + 2]) * K;
       }
     }
-    CLIPS[name] = { name, fps: d.fps, frames: F, duration: (F - 1) / d.fps, pos, contact: (CONTACT[name] ?? 0) / d.fps };
+    // 当たる瞬間に右手が動く向き（+1：人物の右→左, -1：左→右）
+    const cf = CONTACT[name] ?? 0, rh = NAMES.indexOf('RightHand');
+    const xa = pos[(Math.max(0, cf - 1) * J + rh) * 3], xb = pos[(Math.min(F - 1, cf + 1) * J + rh) * 3];
+    CLIPS[name] = { name, fps: d.fps, frames: F, duration: (F - 1) / d.fps, pos, contact: cf / d.fps, sweepX: Math.sign(xb - xa) };
   }));
 }
 
