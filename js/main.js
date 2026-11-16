@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import { buildWorld, RAIL, P, roomAtWorld, clampToRoom, WALL_H } from './world.js';
 import { Character, setCharacterShadows, loadAssets } from './characters.js';
+import { loadMocap } from './mocap.js';
 import * as TX from './textures.js';
 import { Sfx } from './audio.js';
 import { T, lang, setLang, applyStatic } from './i18n.js';
@@ -866,7 +867,7 @@ function doCut(e, dir, speed) {
   clampToRoom(G.room, player.lungeTo || _v2.copy(player.pos), 0.4);
   player.lungeT = 0.13;
   G.facing = Math.atan2(target.x - player.pos.x, target.z - player.pos.z);
-  player.startSlash(-dir.x, dir.y, 0.56);
+  player.startSlash(-dir.x, dir.y, 0.56, true);
   Sfx.swing();
   if (swipe.cuts === 0 && (speed > 2.6 || Math.random() < 0.6)) Sfx.kiai(speed > 2.6);
 
@@ -1663,6 +1664,9 @@ async function boot() {
     await loadAssets();
     player.dress(); allies.forEach((a) => a.ch.dress());
   } catch (e) { console.warn('model load failed', e); }
+  try {
+    await loadMocap(['slash_great', 'slash_sweep', 'slash_spin', 'slash_inward', 'hit_impact', 'hit_guard', 'death_walk', 'death_back', 'terrified', 'idle']);
+  } catch (e) { console.warn('mocap load failed', e); }
   step(0.18, L('屋敷と人物を準備中……', 'Preparing the mansion...'));
   await new Promise((r) => setTimeout(r, 30));
   // 全種類の人物を一度描いて、シェーダーを先にコンパイルしておく

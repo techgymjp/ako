@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import * as TX from './textures.js';
 import { GLTFLoader } from '../vendor/addons/loaders/GLTFLoader.js';
+import { CLIPS, sample, basisQuat } from './mocap.js';
 
 // ================================================================
 // 外部の3Dモデル（Sketchfab, CC BY 4.0）
@@ -223,7 +224,8 @@ const UPPER = 0.29, LOWER = 0.29;
 const THIGH = 0.44, SHIN = 0.44, ANKLE_Y = 0.08;
 const POLE_KNEE = V(0, 0, 1);
 const POLE_R = V(-0.7, -0.8, -0.35), POLE_L = V(0.7, -0.8, -0.35);
-const _a = V(), _b = V(), _c = V(), _d = V(), _e = V(), _f = V(), _g = V(), _q = new THREE.Quaternion();
+const _a = V(), _b = V(), _c = V(), _d = V(), _e = V(), _f = V(), _g = V(), _h = V(), _i = V(), _j = V(), _q = new THREE.Quaternion();
+const _qa = new THREE.Quaternion(), _qb = new THREE.Quaternion(), _qc = new THREE.Quaternion(), _qd = new THREE.Quaternion(), _qe = new THREE.Quaternion();
 const newPose = () => ({ grip: V(), dir: V(0, 1, 0), yaw: 0, pitch: 0, roll: 0, drop: 0, rise: 0, stepF: 0, spread: 0, headYaw: 0 });
 const _p1 = newPose(), _p2 = newPose();
 function clonePose(p) { const o = newPose(); o.grip.copy(p.grip); o.dir.copy(p.dir); for (const k of ['yaw', 'pitch', 'roll', 'drop', 'rise', 'stepF', 'spread', 'headYaw']) o[k] = p[k]; return o; }
@@ -428,23 +430,86 @@ export class Character {
   }
   setYaw(y) { this.facingYaw = y; this.root.rotation.y = y; }
 
+  // ---- モーションキャプチャの再生 ----
+  // from/to：クリップの使う範囲(秒), dur：再生にかける時間, warp：当たる瞬間を合わせる {u, t}
+  playMocap(name, o = {}) {
+    const clip = CLIPS[name];
+    if (!clip) return false;
+    const from = o.from ?? 0, to = Math.min(clip.duration, o.to ?? clip.duration);
+    this.mo = { clip, t: 0, from, to, dur: o.dur ?? (to - from), mirror: !!o.mirror, travel: o.travel ?? 0.3,
+      loop: !!o.loop, hold: !!o.hold, fadeIn: o.fadeIn ?? 0.07, fadeOut: o.fadeOut ?? 0.16, warp: o.warp || null };
+    return true;
+  }
+  stopMocap() { this.mo = null; this._moW = 0; }
+  mocapClipTime() {
+    const m = this.mo;
+    let u = m.dur > 0 ? m.t / m.dur : 1;
+    u = m.loop ? u % 1 : Math.min(1, u);
+    if (m.warp) {
+      const { u: wu, t: wt } = m.warp;
+      return u < wu ? m.from + (wt - m.from) * (u / wu) : wt + (m.to - wt) * ((u - wu) / (1 - wu));
+    }
+    return m.from + (m.to - m.from) * u;
+  }
+  mocapWeight() {
+    const m = this.mo;
+    let w = Math.min(1, m.t / Math.max(0.001, m.fadeIn));
+    if (!m.loop && !m.hold) w *= Math.min(1, Math.max(0, (m.dur - m.t) / m.fadeOut));
+    return w;
+  }
+
   // 斬撃：L = 胴体ローカルの斬る方向（x:左+, y:上+）。dur = 振りかぶり〜戻りまでの全体時間
-  startSlash(lx, ly, dur = 0.56) {
+  // mocap:true なら横薙ぎに本物の動き（モーションキャプチャ）を使う
+  startSlash(lx, ly, dur = 0.56, mocap = false) {
     this.slashL.set(lx, ly, 0).normalize();
     this.from = clonePose(this.cur);
     this.mode = 'slash'; this.modeT = 0; this.modeDur = dur;
+    if (mocap && Math.abs(this.slashL.y) < 0.6) {
+      // 刀が動く向き（+1：人物の右→左）に合うクリップを選ぶ。左右反転も候補にする
+      const want = this.slashL.x >= 0 ? 1 : -1;
+      const cands = [];
+      for (const n of ['slash_great', 'slash_sweep', 'slash_spin', 'slash_inward']) {
+        const c = CLIPS[n];
+        if (!c) continue;
+        if (c.sweepX === want) cands.push([n, false], [n, false]);   // そのままの向きを優先
+        else cands.push([n, true]);
+      }
+      if (cands.length) {
+        const [n, mirror] = cands[Math.floor(Math.random() * cands.length)];
+        const c = CLIPS[n];
+        this.playMocap(n, { from: Math.max(0, c.contact - 0.42), to: Math.min(c.duration, c.contact + 0.5), dur, mirror,
+          warp: { u: 0.27, t: c.contact }, travel: 0.25, fadeIn: 0.05, fadeOut: 0.18 });
+      }
+    } else if (this.mo && !this.mo.loop) this.stopMocap();
   }
-  setMode(m, dur = 0) { if (this.mode !== m) { this.mode = m; this.modeT = 0; } this.modeDur = dur; }
+  setMode(m, dur = 0) {
+    if (this.mode !== m) {
+      this.mode = m; this.modeT = 0;
+      if (m === 'cower') this.playMocap('terrified', { loop: true, travel: 0, fadeIn: 0.4 });
+    }
+    this.modeDur = dur;
+  }
 
   // 斬られてよろめく（lx,ly：斬撃が進む向き。+X=この人物の左）
-  hit(lx = 0, ly = -1) { this.hitT = 0.35; this.flash = 0.25; this.hitL = { x: lx, y: ly }; }
+  hit(lx = 0, ly = -1) {
+    this.hitT = 0.35; this.flash = 0.25; this.hitL = { x: lx, y: ly };
+    // 本物の被弾の動き（斬られた向きに合わせて左右反転）
+    this.playMocap('hit_impact', { from: 0.05, to: 0.95, dur: 0.6, mirror: lx < 0, travel: 0.6, fadeIn: 0.04, fadeOut: 0.2 });
+  }
 
   // 斬られ方：kind = 'down'（唐竹・袈裟）/ 'side'（横一文字）/ 'up'（斬り上げ）
   die(kind = 'down', side = 1) {
-    if (this.mode === 'cower') { kind = 'down'; this.modeT = 0.8; } else this.modeT = 0;
+    const wasCower = this.mode === 'cower';
+    if (wasCower) { kind = 'down'; this.modeT = 0.8; } else this.modeT = 0;
     this.mode = 'dead';
     this.deathKind = kind; this.deathSide = side >= 0 ? 1 : -1;
     this.dropWeapon();
+    this.stopMocap();
+    // 本物の倒れ方：縦に斬られたら前へ崩れ、斬り上げられたら仰向けに倒れる（横は手作りの回転）
+    if (!wasCower) {
+      if (kind === 'down') this.playMocap('death_walk', { from: 0.95, to: 3.0, mirror: side < 0, travel: 0.35, hold: true, fadeIn: 0.06 });
+      else if (kind === 'up') this.playMocap('death_back', { from: 0.25, to: 2.5, mirror: side < 0, travel: 0.45, hold: true, fadeIn: 0.06 });
+    }
   }
 
   // 手から離れた刀が回りながら落ちる
@@ -663,6 +728,7 @@ export class Character {
     this._hipY = 0.9 + cur.rise - cur.drop - Math.abs(wc) * 0.035 * w;
     this.body.position.set(0, 0, 0); this.body.rotation.set(0, 0, 0);
     this.hips.rotation.set(0, cur.yaw * 0.4, 0);
+    this.hips.position.x = 0; this.hips.position.z = 0;
 
     // ---- 上半身 ----
     this.torso.rotation.set(cur.pitch + 0.06 * w, cur.yaw * 0.6, cur.roll);
@@ -679,13 +745,21 @@ export class Character {
       this.torso.rotation.x = 0.35 * k + Math.sin(this.phase * 3) * 0.02;
       this.head.rotation.x = 0.3 * k;
     }
+    // ---- モーションキャプチャ ----
+    this._moW = 0;
+    if (this.mo) {
+      this.mo.t += dt;
+      const m = this.mo;
+      if (!m.loop && !m.hold && m.t >= m.dur) this.stopMocap();
+      else { this._moW = this.mocapWeight(); this.applyMocap(this._moW); }
+    }
     let deadHands = null;
     if (this.mode === 'dead') {
-      deadHands = this.deathPose();
+      if (!this.mo) deadHands = this.deathPose();
       hideWeapon = true;
       this.updateDropped(dt);
     }
-    if (this.hitT > 0 && this.mode !== 'dead') {
+    if (this.hitT > 0 && this.mode !== 'dead' && !this.mo) {
       // 斬られた向きによろめく
       const k = Math.sin(Math.min(1, this.hitT / 0.35) * Math.PI * 0.5);
       const h = this.hitL || { x: 0, y: -1 };
@@ -706,7 +780,20 @@ export class Character {
       this.weapon.position.copy(grip);
       this.weapon.quaternion.setFromUnitVectors(UP, dir);
     }
-    if (deadHands) {
+    const mw = this._moW;
+    if (mw > 0 && this._moArm) {
+      // モーションキャプチャの手の位置へ（刀も右手に合わせる）
+      const A = this._moArm;
+      if (this.weaponType !== 'none' && !hideWeapon) {
+        const g = _h.copy(grip).lerp(A.grip, mw), d = _i.copy(dir).lerp(A.dir, mw).normalize();
+        this.weapon.position.copy(g);
+        this.weapon.quaternion.setFromUnitVectors(UP, d);
+      }
+      const pR = (this.weaponType === 'katana' && !hideWeapon) ? V().copy(grip).addScaledVector(dir, 0.06) : V(-0.25, 0, 0.1);
+      const pL = (this.weaponType === 'katana' && !hideWeapon) ? V().copy(grip).addScaledVector(dir, -0.085) : V(0.25, 0, 0.1);
+      this.ik(this.armR, pR.lerp(A.R, mw), A.poleR);
+      this.ik(this.armL, pL.lerp(A.L, mw), A.poleL);
+    } else if (deadHands) {
       this.ik(this.armR, deadHands[0], POLE_R);
       this.ik(this.armL, deadHands[1], POLE_L);
     } else if (cower) {
@@ -726,18 +813,56 @@ export class Character {
     if (this.lantern) this.lantern.position.set(0.32, 0.05, 0.25);
   }
 
+  // モーションキャプチャの姿勢を、この人物の骨格に移し替える（w：重み）
+  applyMocap(w) {
+    const S = sample(this.mo.clip, this.mocapClipTime(), this.mo.mirror, this.mo.travel, this._S || (this._S = {}));
+    // 脚と腰
+    this.footL.lerp(_h.copy(S.LeftFoot).setY(Math.max(ANKLE_Y * 0.6, S.LeftFoot.y)), w);
+    this.footR.lerp(_h.copy(S.RightFoot).setY(Math.max(ANKLE_Y * 0.6, S.RightFoot.y)), w);
+    this._hipY += (S.Hips.y - this._hipY) * w;
+    this.hips.position.x = S.Hips.x * w; this.hips.position.z = S.Hips.z * w;
+    const lx = S.LeftUpLeg.x - S.RightUpLeg.x, lz = S.LeftUpLeg.z - S.RightUpLeg.z;
+    let yaw = Math.atan2(-lz, lx), cy = this.hips.rotation.y, dy = yaw - cy;
+    while (dy > Math.PI) dy -= Math.PI * 2; while (dy < -Math.PI) dy += Math.PI * 2;
+    this.hips.rotation.y = cy + dy * w;
+    // 胴と頭の向き
+    const left = _i.subVectors(S.LeftArm, S.RightArm);
+    basisQuat(_j.subVectors(S.Spine2, S.Hips), left, _qa);           // 胴（人物の座標）
+    _qb.setFromEuler(this.hips.rotation).invert().multiply(_qa);       // 腰から見た胴
+    this.torso.quaternion.slerp(_qb, w);
+    basisQuat(_j.subVectors(S.HeadTop_End, S.Neck), left, _qc);
+    _qd.copy(_qa).invert().multiply(_qc);
+    this.head.quaternion.slerp(_qd, w);
+    // 腕：肩からの手・肘の向きを胴の座標で（実際の胴の向きで逆変換）
+    _qe.setFromEuler(this.hips.rotation).multiply(this.torso.quaternion).invert();
+    const A = this._moArm || (this._moArm = { R: V(), L: V(), poleR: V(), poleL: V(), grip: V(), dir: V(0, 1, 0) });
+    for (const [side, sh, key, pkey] of [['Right', SH_R, 'R', 'poleR'], ['Left', SH_L, 'L', 'poleL']]) {
+      const hand = _j.subVectors(S[side + 'Hand'], S[side + 'Arm']).applyQuaternion(_qe);
+      A[key].copy(sh).addScaledVector(hand, 1.03);
+      A[pkey].subVectors(S[side + 'ForeArm'], S[side + 'Arm']).applyQuaternion(_qe).addScaledVector(hand, -0.5);
+    }
+    // 刀：両手で握っていれば右手と左手を結ぶ向き、片手なら前腕の延長に少し上向き
+    const d = _h.subVectors(A.R, A.L);
+    if (d.length() < 0.26) A.dir.copy(d).normalize();
+    else {
+      A.dir.subVectors(S.RightHand, S.RightForeArm).applyQuaternion(_qe).normalize();
+      A.dir.y += 0.35; A.dir.normalize();
+    }
+    A.grip.copy(A.R).addScaledVector(A.dir, -0.06);
+  }
+
   // 腰の高さを足が届く範囲に収め、両脚を2関節IKで解く
   solveLegs() {
     const reach = THIGH + SHIN - 0.01;
     let hipY = this._hipY;
     for (const [f, x] of [[this.footL, 0.1], [this.footR, -0.1]]) {
-      const dx = f.x - x, dz = f.z;
+      const dx = f.x - x - this.hips.position.x, dz = f.z - this.hips.position.z;
       hipY = Math.min(hipY, f.y + Math.sqrt(Math.max(0.01, reach * reach - dx * dx - dz * dz)));
     }
     this.hips.position.y = hipY;
     const yaw = this.hips.rotation.y;
     for (const [leg, f] of [[this.legL, this.footL], [this.legR, this.footR]]) {
-      const t = _g.set(f.x, f.y - hipY, f.z).applyAxisAngle(UP, -yaw);
+      const t = _g.set(f.x - this.hips.position.x, f.y - hipY, f.z - this.hips.position.z).applyAxisAngle(UP, -yaw);
       this.ik(leg, t, POLE_KNEE, THIGH, SHIN);
       // 足の裏は地面と平行に
       const { upper, elbow, foot } = leg.userData;
