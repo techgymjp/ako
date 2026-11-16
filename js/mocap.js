@@ -11,7 +11,7 @@ const NAMES = ['Hips', 'Spine', 'Spine2', 'Neck', 'Head', 'HeadTop_End', 'LeftSh
 const MIRROR = NAMES.map((n) => NAMES.indexOf(n.startsWith('Left') ? n.replace('Left', 'Right') : n.startsWith('Right') ? n.replace('Right', 'Left') : n));
 
 // 斬撃の「当たる瞬間」（右手が体の中心を横切るフレーム）
-const CONTACT = { slash_great: 13, slash_sweep: 18 };
+const CONTACT = { slash_great: 13, slash_sweep: 18, slash_spin: 26 };
 
 export async function loadMocap(names, base = 'assets/mocap/') {
   await Promise.all(names.map(async (name) => {
