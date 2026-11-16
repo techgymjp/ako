@@ -428,7 +428,8 @@ const DIFF = {
   attackers: 2,       // 同時に斬りかかってくる敵の数（4場面目から）
   gap: 0,             // 斬撃のあと次の敵が斬りかかるまでの間（秒）
   waitBase: 0.4, waitRand: 0.6,  // 構えてから斬りかかるまでの時間
-  redo: 1,            // やり直しの回数
+  redo: 1,            // やり直しの回数（Web版）
+  appRedo: 5,         // アプリ版：広告を見てやり直せる回数
   bossHp: 2,          // 強敵の体力の倍率
   hp: 2,              // ふつうの家臣の体力（何太刀で倒れるか）
   guardTol: 0.9,      // 受けの構えで弾かれる向きの幅（ラジアン）
@@ -1267,7 +1268,7 @@ function showResult(win, dawn = false) {
     ? '<p>赤穂浪士四十七士は吉良上野介を討ち取り、主君・浅野内匠頭の無念を晴らした。</p><p>一行は雪の江戸の町を、亡君の眠る<b>泉岳寺</b>へと引き揚げていった。</p>'
     : dawn ? '<p>夜が明けてしまった。吉良上野介を討ち漏らした……。</p>'
       : '<p>大石内蔵助は敵の刃に倒れた……。</p><p>刀が赤く光った敵を先に斬れ。構えた刀と同じ向きに斬ると弾かれるぞ。</p>')
-    + (!win && !dawn && G.retries >= DIFF.redo ? (lang === 'en' ? `<p>No retries left (${DIFF.redo} per raid).</p>` : `<p>やり直しは使い切った（1回の討ち入りで${DIFF.redo}回まで）。</p>`) : '');
+    + (!win && !dawn && G.retries >= redoMax() ? (lang === 'en' ? `<p>No retries left (${redoMax()} per raid).</p>` : `<p>やり直しは使い切った（1回の討ち入りで${redoMax()}回まで）。</p>`) : '');
   const time = en ? `${mm}m ${String(ss).padStart(2, '0')}s` : `${mm}分${String(ss).padStart(2, '0')}秒`;
   const fb = G.finalBonus || { alive: allies.filter((a) => !a.down).length, allyPts: 0, timePts: 0 };
   const P_ = G.scoreParts;
@@ -1302,7 +1303,7 @@ function showResult(win, dawn = false) {
   $('ranking').innerHTML = list.length ? `<h3>${en ? 'Ranking (this device)' : 'ランキング（この端末）'}</h3><ol>` + list.slice(0, 5).map((r, i) =>
     `<li class="${i === mine ? 'me' : ''}"><span>${r.score.toLocaleString()}</span><small>${r.win ? (en ? 'Vengeance' : '本懐') : (en ? 'Dawn' : '夜明け')} · ${Math.floor(r.time / 60)}:${String(r.time % 60).padStart(2, '0')} · ${r.d}</small></li>`).join('') + '</ol>' : '';
   // web-only:start
-  if ($('retryHere')) $('retryHere').style.display = win || dawn || G.retries >= DIFF.redo ? 'none' : '';
+  if ($('retryHere')) $('retryHere').style.display = win || dawn || G.retries >= redoMax() ? 'none' : '';
   // web-only:end
   G.lastResult = { win, dawn };
   $('result').classList.add('show');
@@ -1362,13 +1363,15 @@ function goTitle() {
 const withAd = (fn) => async () => { Ads.setBanner(false); await Ads.showInterstitial(3000); fn(); };
 
 // リワード広告：斬られたら、広告を見てこの戦いからやり直せる（1 回の討ち入りで 5 回まで）
-const canRevive = () => Ads.canReward && G.retries < DIFF.redo;
+// やり直せる回数：アプリは広告を見れば多めに
+function redoMax() { return NATIVE ? DIFF.appRedo : DIFF.redo; }
+const canRevive = () => Ads.canReward && G.retries < redoMax();
 let reviveTimer = null;
 function offerRevive() {
   // 斬られた様子を見届けてから案内を出し、数秒で自動的に結果へ進む
   later(1.6, () => {
     if (G.state !== 'dead') return;
-    const left = DIFF.redo - G.retries;
+    const left = redoMax() - G.retries;
     $('reviveText').textContent = lang === 'en' ? `Watch an ad to retry this fight? (${left} left)` : `広告を見て、この戦いからやり直しますか？（残り ${left} 回）`;
     $('revive').classList.add('show');
     const t0 = performance.now(), LIMIT = 6000;
