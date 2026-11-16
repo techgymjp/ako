@@ -418,6 +418,8 @@ export function buildWorld(scene, quality) {
       else if (side === 1) { x = a.x + 0.45 + r() * 0.5; z = a.z + 0.8 + r() * (b.z - a.z - 1.6); }
       else { x = b.x - 0.45 - r() * 0.5; z = a.z + 0.8 + r() * (b.z - a.z - 1.6); }
       if (Math.abs(x - P(500, 0).x) < 1.2 && z < a.z + 2.6) continue; // 入口付近は空ける
+      const kp = P(500, 465);
+      if (Math.hypot(x - kp.x, z - kp.z) < 1.5) continue; // 吉良がうずくまる隙間を空ける
       const m = add(bag, mats.straw, x, 0.3 + (i > 16 ? 0.6 : 0), z);
       m.rotation.z = Math.PI / 2; m.rotation.y = r() * Math.PI;
     }

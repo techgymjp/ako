@@ -26,7 +26,7 @@ body.playing #hud{display:block}
   color:#fff;text-shadow:0 0 12px #e33,0 3px 0 #000;opacity:0;transform:scale(.6)}
 #hudCombo.pop{animation:pop 1.1s ease-out forwards}
 @keyframes pop{0%{opacity:0;transform:scale(1.8)}12%{opacity:1;transform:scale(1)}75%{opacity:1}100%{opacity:0;transform:scale(1) translateY(-20px)}}
-#hudHint{position:absolute;left:50%;bottom:24px;transform:translateX(-50%);max-width:min(92vw,560px);
+#hudHint{position:absolute;left:12px;right:12px;bottom:24px;margin:0 auto;width:fit-content;max-width:560px;
   white-space:pre-line;text-align:center;font-size:14px;line-height:1.7;background:rgba(0,0,0,.55);
   border:1px solid rgba(255,255,255,.2);padding:8px 14px;opacity:0;transition:opacity .4s}
 #hudHint.show{opacity:1}
@@ -132,3 +132,5 @@ body.en .loc,body.en h3,body.en .sub{letter-spacing:.06em}
   h1{font-size:24px;margin-bottom:8px}
   .lead{margin-bottom:10px}
 }
+
+.btn.share{background:#1d2b44;box-shadow:0 0 0 4px #1d2b44,0 6px 20px rgba(0,0,0,.6)}

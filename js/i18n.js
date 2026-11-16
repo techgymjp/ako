@@ -75,7 +75,7 @@ const HTML_EN = {
     '<div class="step"><i>援</i><div><b>Protect your comrades</b><p>Cut enemies marked “Help him!”. Keep everyone alive for a big bonus.</p></div></div>',
   howtoNote: 'On a computer you can also cut with the arrow keys',
   howtoBack: 'Back to top', howtoStart: 'Attack', retryHere: 'Retry here', retryBtn: 'From the start', pauseH2: 'Paused', resumeBtn: 'Resume',
-  pauseTop: 'Back to top', resultTop: 'Back to top', shareBtn: 'Share', privacyLink: 'Privacy Policy', adPrivacyLink: 'Ad settings',
+  pauseTop: 'Back to top', resultTop: 'Back to top', shareBtn: 'Share result', privacyLink: 'Privacy Policy', adPrivacyLink: 'Ad settings',
   reviveH: 'Defeated...', reviveText: 'Watch an ad to retry this fight?', reviveBtn: 'Retry', reviveSkip: 'Give up',
 };
 

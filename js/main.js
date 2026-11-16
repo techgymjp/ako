@@ -566,6 +566,25 @@ function updateAlliesHud() {
   hud.allies.innerHTML = allies.map((a) => `<i class="${a.down ? 'down' : a.hp < 2 ? 'hurt' : ''}"></i>`).join('');
 }
 
+// 画面にしっかり映っているか（映っていない敵は斬りかかってこない）
+function onScreen(ch, margin = 0.82) {
+  ch.root.updateMatrixWorld(true);
+  ch.chestWorld(_v3);
+  const p = _v3.project(camera);
+  return p.z < 1 && Math.abs(p.x) < margin && Math.abs(p.y) < 0.9;
+}
+
+// 戦闘中に注目する敵：斬りかかってくる敵 → 同志に斬りかかる敵 → 一番近い敵
+function focusFoe() {
+  const live = enemies.filter((e) => e.alive && e.state !== 'wait');
+  if (!live.length) return null;
+  const d = (e) => e.ch.pos.distanceToSquared(player.pos);
+  return live.find((e) => e.state === 'windup' || e.state === 'strike')
+    || live.find((e) => e.allyWind >= 0)
+    || live.filter((e) => !e.ally).sort((a, b) => d(a) - d(b))[0]
+    || live.sort((a, b) => d(a) - d(b))[0];
+}
+
 function anyAttacking() { return enemies.some((e) => e.alive && (e.state === 'windup' || e.state === 'strike')); }
 
 function updateEnemy(e, dt) {
@@ -636,7 +655,7 @@ function updateEnemy(e, dt) {
         if (e.nextShift > 0) { e.guard = pickGuard(e); e.shiftFlash = 0.35; Sfx.clatter(); }
         e.nextShift = e.t + e.ty.shift * (0.7 + Math.random() * 0.6);
       }
-      if (e.t > e.wait && G.attackCD <= 0 && !anyAttacking() && G.state === 'fight') startWindup(e);
+      if (e.t > e.wait && G.attackCD <= 0 && !anyAttacking() && G.state === 'fight' && onScreen(e.ch)) startWindup(e);
       break;
     }
     case 'windup': {
@@ -692,7 +711,7 @@ function updateEnemy(e, dt) {
       }
       if (ch.mode === 'windup') ch.setMode('ready');
       e.allyAtkT -= dt;
-      if (e.allyAtkT <= 0 && G.state === 'fight') { e.allyWind = 0; Sfx.shing(); break; }
+      if (e.allyAtkT <= 0 && G.state === 'fight' && onScreen(ch)) { e.allyWind = 0; Sfx.shing(); break; }
       e.swingT -= dt;
       if (e.swingT <= 0) {
         e.swingT = 0.7 + Math.random() * 0.6;
@@ -1120,7 +1139,7 @@ function stopCleared(st) {
 function revealKira() {
   G.state = 'event'; G.stateT = 0;
   const ch = new Character('kira', { name: '吉良上野介' });
-  const p = P(500, 471);
+  const p = P(500, 465);
   ch.setPosition(p.x, p.z);
   ch.setYaw(Math.PI);
   ch.setMode('cower');
@@ -1205,7 +1224,8 @@ function showResult(win, dawn = false) {
   // ランキング（この端末に上位10件）
   let list = loadRanking(), mine = -1;
   if (win || dawn) {
-    const entry = { score: G.score, time: Math.round(t), win, d: new Date().toISOString().slice(0, 10) };
+    const now = new Date();
+    const entry = { score: G.score, time: Math.round(t), win, d: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}` };
     list.push(entry);
     list.sort((a, b) => b.score - a.score);
     list = list.slice(0, 10);
@@ -1307,18 +1327,19 @@ async function closeRevive(watch) {
 $('reviveBtn').onclick = () => closeRevive(true);
 $('reviveSkip').onclick = () => closeRevive(false);
 
-// シェア（アプリでは Android の共有メニュー、Web 版では端末の共有機能かクリップボード）
+// シェア（アプリでは Android の共有メニュー、Web 版では端末の共有機能。なければ X の投稿画面）
+const SHARE_URL = 'https://techgym.jp/column/claude-code-game-ako/';
 async function shareResult() {
   const r = G.lastResult || {};
   const en = lang === 'en';
   const head = en ? 'Chushingura: 47 Ronin Raid' : '忠臣蔵 赤穂浪士の討ち入り';
-  const what = r.win ? (en ? 'Vengeance fulfilled!' : '本懐成就！') : (en ? 'Fell in battle...' : '無念……');
+  const what = r.win ? (en ? 'Vengeance fulfilled!' : '本懐成就！') : r.dawn ? (en ? 'Dawn broke...' : '夜が明けた……') : (en ? 'Fell in battle...' : '無念……');
   const text = `${head}｜${what} ${en ? 'Score' : '得点'} ${G.score.toLocaleString()}・${en ? `retries ${G.retries}` : `やり直し${G.retries}回`} #忠臣蔵`;
   try {
     const Share = plugin('Share');
-    if (Share) await Share.share({ title: head, text });
-    else if (navigator.share) await navigator.share({ title: head, text });
-    else { await navigator.clipboard.writeText(text); comboText(en ? 'Copied!' : 'コピーしました'); }
+    if (Share) await Share.share({ title: head, text, url: SHARE_URL, dialogTitle: en ? 'Share your result' : '結果をシェア' });
+    else if (navigator.share) await navigator.share({ title: head, text, url: SHARE_URL });
+    else window.open(`https://x.com/intent/post?text=${encodeURIComponent(text)}&url=${encodeURIComponent(SHARE_URL)}`, '_blank', 'noopener');
   } catch (e) { /* 閉じられた */ }
 }
 
@@ -1432,6 +1453,9 @@ function update(dt) {
   if (G.state === 'fight' || G.state === 'kira') {
     // 戦闘中は自然体で中段に構える
     if (player.mode !== 'slash') player.setMode('ready');
+    // 斬っていない間は、一番危ない敵の方へ向き直る
+    const f = G.state === 'fight' && player.mode !== 'slash' && !(player.lungeT > 0) ? focusFoe() : null;
+    if (f) G.facing = Math.atan2(f.ch.pos.x - player.pos.x, f.ch.pos.z - player.pos.z);
   }
   player.update(dt);
   updateTrail(player, player.swinging || (player.mode === 'slash' && player.modeT < player.modeDur * 0.45));
@@ -1565,26 +1589,65 @@ function updateCamera(dt) {
     camTarget.set(Math.cos(t) * 30 + 40, 14, Math.sin(t) * 12);
     camLook.set(30, 0, 0);
   } else if (G.state === 'walk' || G.state === 'intro') {
+    G.camYaw = undefined;
     railAt(Math.max(-4, G.s - 3.4), camTarget);
     if (G.s < 3.4) { railDirSmooth(0, tmpDir); camTarget.copy(railPts[0]).addScaledVector(tmpDir, G.s - 3.4); }
     camTarget.y = indoor ? 2.05 : 2.5;
     railDirSmooth(G.s, tmpDir);
     camLook.copy(player.pos).addScaledVector(tmpDir, 3).setY(1.25);
   } else {
-    const f = G.facing;
-    const back = G.state === 'kira' || (G.state === 'event' && kira) ? 2.4 : 3.0;
-    camTarget.set(player.pos.x - Math.sin(f) * back - Math.cos(f) * 0.55, indoor ? 2.0 : 2.3, player.pos.z - Math.cos(f) * back + Math.sin(f) * 0.55);
-    // 敵の重心を注視
-    const foes = enemies.filter((e) => e.alive && !e.ally && e.state !== 'wait');
+    const kiraScene = kira && (G.state === 'kira' || G.state === 'event' || G.state === 'win');
+    // 生きている敵（同志と斬り合っている敵も含む）の方向を重み付きで平均して、カメラの向きを決める
+    const foes = enemies.filter((e) => e.alive && e.state !== 'wait');
+    let yaw = G.facing, spread = 0;
+    if (foes.length && !kiraScene) {
+      let sx = 0, sz = 0;
+      for (const e of foes) {
+        _v.subVectors(e.ch.pos, player.pos).setY(0);
+        if (_v.lengthSq() < 1e-4) continue;
+        _v.normalize();
+        const w = e.state === 'windup' || e.state === 'strike' ? 3 : e.allyWind >= 0 ? 2.5 : e.ally ? 0.8 : 1;
+        sx += _v.x * w; sz += _v.z * w;
+      }
+      if (sx * sx + sz * sz > 1e-4) yaw = Math.atan2(sx, sz);
+      for (const e of foes) {
+        let a = Math.atan2(e.ch.pos.x - player.pos.x, e.ch.pos.z - player.pos.z) - yaw;
+        while (a > Math.PI) a -= Math.PI * 2; while (a < -Math.PI) a += Math.PI * 2;
+        spread = Math.max(spread, Math.abs(a));
+      }
+    }
+    // 向きはなめらかに追う
+    if (G.camYaw === undefined) G.camYaw = yaw;
+    let dy = yaw - G.camYaw;
+    while (dy > Math.PI) dy -= Math.PI * 2; while (dy < -Math.PI) dy += Math.PI * 2;
+    G.camYaw += dy * Math.min(1, dt * 3.5);
+    const f = G.camYaw;
+    // 敵が左右に広がっているほど、下がって高い位置から広く映す
+    const wide = THREE.MathUtils.clamp((spread - 0.5) / 1.2, 0, 1);
+    let back = 3.0 + wide * 1.6, side = 0.55, height = (indoor ? 2.0 : 2.3) + wide * (indoor ? 0.4 : 1.4);
+    if (kiraScene) { back = 2.0; side = 1.35; height = indoor ? 2.35 : 2.5; }   // 吉良が大石の陰に隠れないよう肩越しに
+    camTarget.set(player.pos.x - Math.sin(f) * back - Math.cos(f) * side, height, player.pos.z - Math.cos(f) * back + Math.sin(f) * side);
+    // 注視点：大石の前方と敵の重心の間
     camLook.copy(player.pos).add(_v.set(Math.sin(f), 0, Math.cos(f)).multiplyScalar(2.2));
-    if (foes.length) {
+    if (foes.length && !kiraScene) {
       const c = new THREE.Vector3();
       foes.forEach((e) => c.add(e.ch.pos)); c.divideScalar(foes.length);
       camLook.lerp(c, 0.5);
     }
-    if (kira && (G.state === 'kira' || G.state === 'event' || G.state === 'win')) camLook.lerp(kira.ch.pos, 0.6);
-    camLook.y = G.state === 'kira' || G.state === 'win' ? 0.8 : 1.15;
+    if (kiraScene) camLook.copy(kira.ch.pos).lerp(player.pos, 0.25);
+    camLook.y = G.state === 'kira' || G.state === 'win' ? 0.7 : 1.15;
     if (G.state === 'dead') { camTarget.y = 3.2; camLook.copy(player.pos).setY(0.4); }
+    if (indoor) clampToRoom(G.room, camTarget, 0.25);
+    // カメラが人物の体にめり込まないよう離す
+    for (const c of [...enemies.filter((e) => e.alive).map((e) => e.ch), ...allies.filter((a) => !a.down).map((a) => a.ch), kira && kira.ch].filter(Boolean)) {
+      _v.subVectors(camTarget, c.pos).setY(0);
+      const dist = _v.length();
+      if (dist < 0.9) {
+        if (dist < 1e-3) _v.set(-Math.sin(f), 0, -Math.cos(f)); else _v.normalize();
+        camTarget.addScaledVector(_v, 0.9 - dist);
+        camTarget.y = Math.max(camTarget.y, indoor ? 2.35 : 2.6);
+      }
+    }
     if (indoor) clampToRoom(G.room, camTarget, 0.25);
   }
   if (indoor) camTarget.y = Math.min(camTarget.y, WALL_H - 0.3);
