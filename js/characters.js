@@ -10,8 +10,10 @@ const tmpV = new THREE.Vector3(), tmpV2 = new THREE.Vector3(), tmpQ = new THREE.
 const G = {};
 function geos() {
   if (G.ready) return G;
-  G.leg = new THREE.CylinderGeometry(0.1, 0.2, 0.86, 14, 1).translate(0, -0.43, 0);
-  G.foot = new THREE.BoxGeometry(0.1, 0.06, 0.25).translate(0, -0.9, 0.04);
+  // 脚（腿＋膝から下。袴は裾に向けて広がる）
+  G.thigh = new THREE.CylinderGeometry(0.115, 0.15, 0.5, 14, 1).translate(0, -0.22, 0);
+  G.shin = new THREE.CylinderGeometry(0.15, 0.215, 0.46, 14, 1).translate(0, -0.2, 0);
+  G.foot = new THREE.BoxGeometry(0.1, 0.06, 0.25).translate(0, -0.05, 0.05);
   G.chest = new THREE.CylinderGeometry(0.205, 0.2, 0.82, 18, 1).translate(0, 0.2, 0);
   G.obi = new THREE.CylinderGeometry(0.2, 0.2, 0.09, 18).translate(0, 0.02, 0);
   G.upperSleeve = new THREE.CylinderGeometry(0.075, 0.095, 0.32, 12, 1, true).translate(0, -0.15, 0);
@@ -83,18 +85,20 @@ function mesh(geo, material, parent, cast = true) {
 // ポーズ計算に使う定数（胴体ローカル座標：原点＝腰、+Z前、+Y上、+X左）
 const SH_L = V(0.2, 0.5, 0), SH_R = V(-0.2, 0.5, 0);
 const UPPER = 0.29, LOWER = 0.29;
+const THIGH = 0.44, SHIN = 0.44, ANKLE_Y = 0.08;
+const POLE_KNEE = V(0, 0, 1);
 const POLE_R = V(-0.7, -0.8, -0.35), POLE_L = V(0.7, -0.8, -0.35);
-const _a = V(), _b = V(), _c = V(), _d = V(), _e = V(), _f = V(), _q = new THREE.Quaternion();
-const newPose = () => ({ grip: V(), dir: V(0, 1, 0), yaw: 0, pitch: 0, roll: 0, drop: 0, stepF: 0, spread: 0, headYaw: 0 });
+const _a = V(), _b = V(), _c = V(), _d = V(), _e = V(), _f = V(), _g = V(), _q = new THREE.Quaternion();
+const newPose = () => ({ grip: V(), dir: V(0, 1, 0), yaw: 0, pitch: 0, roll: 0, drop: 0, rise: 0, stepF: 0, spread: 0, headYaw: 0 });
 const _p1 = newPose(), _p2 = newPose();
-function clonePose(p) { const o = newPose(); o.grip.copy(p.grip); o.dir.copy(p.dir); for (const k of ['yaw', 'pitch', 'roll', 'drop', 'stepF', 'spread', 'headYaw']) o[k] = p[k]; return o; }
+function clonePose(p) { const o = newPose(); o.grip.copy(p.grip); o.dir.copy(p.dir); for (const k of ['yaw', 'pitch', 'roll', 'drop', 'rise', 'stepF', 'spread', 'headYaw']) o[k] = p[k]; return o; }
 function blendPose(a, b, k, out) {
   out.grip.lerpVectors(a.grip, b.grip, k);
   const ad = _a.copy(a.dir), bd = _b.copy(b.dir);
   out.dir.lerpVectors(ad, bd, k);
   if (out.dir.lengthSq() < 1e-4) out.dir.copy(bd);
   out.dir.normalize();
-  for (const key of ['yaw', 'pitch', 'roll', 'drop', 'stepF', 'spread', 'headYaw']) out[key] = a[key] + (b[key] - a[key]) * k;
+  for (const key of ['yaw', 'pitch', 'roll', 'drop', 'rise', 'stepF', 'spread', 'headYaw']) out[key] = a[key] + (b[key] - a[key]) * k;
   return out;
 }
 const easeOut = (x) => 1 - (1 - x) * (1 - x);
@@ -118,9 +122,19 @@ export class Character {
     this.hips = new THREE.Group(); this.hips.position.y = 0.95; this.body.add(this.hips);
 
     // 脚（袴）
-    this.legL = new THREE.Group(); this.legL.position.set(0.1, 0, 0); this.hips.add(this.legL);
-    this.legR = new THREE.Group(); this.legR.position.set(-0.1, 0, 0); this.hips.add(this.legR);
-    for (const leg of [this.legL, this.legR]) { mesh(G.leg, hak, leg); mesh(G.foot, dark, leg); }
+    const mkLeg = (x) => {
+      const leg = new THREE.Group(); leg.position.set(x, 0, 0); this.hips.add(leg);
+      const upper = new THREE.Group(); leg.add(upper);
+      mesh(G.thigh, hak, upper);
+      const knee = new THREE.Group(); knee.position.y = -THIGH; upper.add(knee);
+      mesh(G.shin, hak, knee);
+      const foot = new THREE.Group(); foot.position.y = -SHIN; knee.add(foot);
+      mesh(G.foot, dark, foot);
+      leg.userData = { upper, elbow: knee, foot };
+      return leg;
+    };
+    this.legL = mkLeg(0.1); this.legR = mkLeg(-0.1);
+    this.footL = V(0.12, 0.08, -0.1); this.footR = V(-0.12, 0.08, 0.15);
 
     // 胴
     this.torso = new THREE.Group(); this.hips.add(this.torso);
@@ -207,7 +221,7 @@ export class Character {
     this.swinging = false;
     this.facingYaw = 0;
     // 現在の姿勢（胴体ローカル）：grip=柄の中心, dir=刀身の向き
-    this.cur = { grip: V(-0.02, 0.25, 0.36), dir: V(0, 0.75, 1).normalize(), yaw: 0, pitch: 0.05, roll: 0, drop: 0.01, stepF: 0.2, spread: 0.06, headYaw: 0 };
+    this.cur = { grip: V(-0.02, 0.25, 0.36), dir: V(0, 0.75, 1).normalize(), yaw: 0, pitch: 0.05, roll: 0, drop: 0.06, rise: 0, stepF: 0.2, spread: 0.06, headYaw: 0 };
     this.from = null;
   }
 
@@ -296,8 +310,8 @@ export class Character {
       const recoil = sm(0, 0.12, t), stag = sm(0.05, 0.5, t), fall = sm(0.35, 0.95, t);
       torso.rotation.set(-0.55 * recoil + 0.2 * fall, 0.2 * s * recoil, 0);
       head.rotation.set(-0.6 * recoil + 0.4 * fall, 0, 0);
-      this.legL.rotation.set(0.35 * stag - 0.4 * fall, 0, 0.12); this.legR.rotation.set(-0.25 * stag - 0.5 * fall, 0, -0.12);
-      this.hips.position.y = 0.93 - 0.05 * stag;
+      this.footL.set(0.15, ANKLE_Y, -0.15 - 0.3 * stag); this.footR.set(-0.15, ANKLE_Y, 0.2 - 0.1 * stag);
+      this._hipY = 0.9 - 0.06 * stag;
       body.position.z = -0.45 * stag;
       body.rotation.x = -1.5 * fall + 0.05 * Math.sin(Math.min(1, (t - 0.95) * 4) * Math.PI) * (t > 0.95 ? 1 : 0);
       body.position.y = 0.1 * fall;
@@ -308,8 +322,8 @@ export class Character {
       torso.rotation.set(0.35 * stag, 0.95 * s * spin - 0.3 * s * fall, -0.25 * s * stag);
       head.rotation.set(0.3 * stag, 0.4 * s * spin, 0);
       this.hips.rotation.y = 0.5 * s * spin;
-      this.legL.rotation.set(-0.3 * stag, 0, 0.04 + 0.3 * stag * s); this.legR.rotation.set(0.25 * stag, 0, -0.04 + 0.2 * stag * s);
-      this.hips.position.y = 0.93 - 0.08 * stag;
+      this.footL.set(0.14 + 0.22 * s * stag, ANKLE_Y, -0.1 + 0.1 * stag); this.footR.set(-0.14 + 0.3 * s * stag, ANKLE_Y, 0.12 - 0.15 * stag);
+      this._hipY = 0.88 - 0.12 * stag;
       body.position.x = 0.55 * s * stag;
       body.rotation.z = -1.42 * s * fall;
       body.rotation.x = 0.25 * fall;
@@ -322,8 +336,8 @@ export class Character {
       torso.rotation.set(-0.45 * recoil + 0.6 * kneel - 0.35 * fall, 0.2 * s * kneel, 0.12 * s * kneel);
       head.rotation.set(-0.5 * recoil + 0.45 * kneel - 0.3 * fall, 0.2 * s * kneel, 0);
       // 膝をつく（脚の下側は床に隠れる）
-      this.legL.rotation.set(0.2 * kneel, 0, 0.08); this.legR.rotation.set(-0.35 * kneel, 0, -0.08);
-      this.hips.position.y = 0.93 - 0.43 * kneel;
+      this.footL.set(0.14, ANKLE_Y, -0.12 - 0.42 * kneel); this.footR.set(-0.14, ANKLE_Y, 0.15 - 0.45 * kneel);
+      this._hipY = 0.9 - 0.42 * kneel;
       body.rotation.x = 1.38 * fall;
       body.rotation.z = -0.15 * s * fall;
       body.position.y = 0.05 * fall;
@@ -350,20 +364,26 @@ export class Character {
     out.yaw = L.x * 0.55 * k;                 // 腰の捻り
     out.pitch = 0.1 - L.y * 0.22 * k;         // 振り下ろしで前傾
     out.roll = -L.x * L.y * 0.12 * k;
-    // 横薙ぎほど足を大きく開き、腰を深く落とす
-    const horiz = Math.max(0, 1 - Math.abs(L.y) * 1.4);
+    // 斬り方ごとの全身の使い方
+    const horiz = Math.max(0, 1 - Math.abs(L.y) * 1.4);   // 横薙ぎ
+    const upw = Math.max(0, L.y);                          // 斬り上げ
+    const dnw = Math.max(0, -L.y);                         // 振り下ろし
     const sink = Math.min(1, 0.45 + u * 0.8);
-    out.drop = 0.02;
-    out.stepF = 0.25 + 0.35 * u + horiz * 0.36 * sink;   // 右足を踏み込む
-    out.spread = horiz * 0.34 * sink;                    // 左右への開き
-    out.pitch += horiz * 0.12 * sink;
+    out.stepF = 0.3 + 0.35 * u + horiz * 0.3 * sink;      // 右足を踏み込む
+    out.spread = horiz * 0.38 * sink;                     // 横薙ぎは足を大きく開く
+    out.drop = 0.08
+      + horiz * 0.26 * sink                                // 横薙ぎ：腰を深く落とす
+      + upw * 0.2 * (1 - u)                                // 斬り上げ：低く溜めて…
+      + dnw * (0.22 * u * u - 0.08 * (1 - u));             // 振り下ろし：伸びてから、斬った後に沈む
+    out.rise = upw * 0.12 * u * u;                         // 斬り上げ：伸び上がる
+    out.pitch += horiz * 0.15 * sink + dnw * 0.12 * u - upw * 0.18 * u;
     out.headYaw = -out.yaw * 0.8;             // 視線は相手に残す
     return out;
   }
 
   targetPose(out) {
     const b = Math.sin(this.phase * 0.5) * 0.012;
-    out.yaw = 0; out.pitch = 0.05; out.roll = 0; out.drop = 0.01; out.stepF = 0.2; out.spread = 0.06; out.headYaw = 0;
+    out.yaw = 0; out.pitch = 0.05; out.roll = 0; out.drop = 0.06; out.rise = 0; out.stepF = 0.2; out.spread = 0.06; out.headYaw = 0;
     switch (this.mode) {
       case 'sheathed':
         out.grip.set(-0.2, -0.05, 0.12); out.dir.set(-0.1, -0.2, 1).normalize(); out.stepF = 0; out.drop = 0;
@@ -379,7 +399,7 @@ export class Character {
       case 'windup':
         // 上段に振りかぶる
         out.grip.set(0, 0.86, 0.16); out.dir.set(0, 0.85, -0.5).normalize();
-        out.pitch = -0.1; out.drop = 0.05; out.stepF = 0.3;
+        out.pitch = -0.1; out.drop = 0.02; out.stepF = 0.3;
         if (this.weaponType === 'spear') { out.grip.set(-0.08, 0.3, 0.02); out.dir.set(0, 0.08, 1).normalize(); out.stepF = 0.35; }
         break;
       case 'cower':
@@ -433,18 +453,18 @@ export class Character {
       blendPose(cur, _p1, k, cur);
     }
 
-    // ---- 下半身 ----
+    // ---- 下半身：足の置き場所と腰の高さを決める（膝はIKで曲げる） ----
     const w = this.walk;
-    const sw = Math.sin(this.phase) * 0.55 * w;
-    const st = cur.stepF * (1 - w);
-    const sp = 0.04 + cur.spread * (1 - w);
-    this.legL.rotation.set(sw + st * 0.9, 0, sp);
-    this.legR.rotation.set(-sw - st, 0, -sp);
-    // 足の開きに合わせて腰の高さを決める（足裏が地面に着くように）
-    const ext = Math.max(Math.cos(this.legL.rotation.x) * Math.cos(sp), Math.cos(this.legR.rotation.x) * Math.cos(sp));
-    this.hips.position.y = Math.min(0.95 - Math.abs(Math.cos(this.phase)) * 0.03 * w, 0.09 + 0.86 * ext) - cur.drop;
+    const stride = (0.12 + cur.stepF * 0.55) * (1 - w);
+    const wide = 0.11 + cur.spread * 0.6 * (1 - w);
+    const ws = Math.sin(this.phase), wc = Math.cos(this.phase);
+    this.footL.set(wide, ANKLE_Y + Math.max(0, -wc) * 0.13 * w, -stride * 0.8 - ws * 0.32 * w);
+    this.footR.set(-wide, ANKLE_Y + Math.max(0, wc) * 0.13 * w, stride + ws * 0.32 * w);
+    // 伸び上がるときは踵を上げる
+    if (cur.rise > 0) { this.footL.y += cur.rise * 0.5; this.footR.y += cur.rise * 0.7; }
+    this._hipY = 0.9 + cur.rise - cur.drop - Math.abs(wc) * 0.035 * w;
     this.body.position.set(0, 0, 0); this.body.rotation.set(0, 0, 0);
-    this.hips.rotation.y = cur.yaw * 0.4;
+    this.hips.rotation.set(0, cur.yaw * 0.4, 0);
 
     // ---- 上半身 ----
     this.torso.rotation.set(cur.pitch + 0.06 * w, cur.yaw * 0.6, cur.roll);
@@ -455,8 +475,9 @@ export class Character {
     if (this.mode === 'cower') {
       cower = true; hideWeapon = true;
       const k = Math.min(1, this.modeT / 0.6);
-      this.hips.position.y = 0.95 - 0.5 * k;
-      this.legL.rotation.x = -1.5 * k; this.legR.rotation.x = -1.5 * k;
+      // 正座のようにうずくまる
+      this._hipY = 0.9 - 0.48 * k;
+      this.footL.set(0.12, ANKLE_Y, -0.45 * k); this.footR.set(-0.12, ANKLE_Y, -0.42 * k);
       this.torso.rotation.x = 0.35 * k + Math.sin(this.phase * 3) * 0.02;
       this.head.rotation.x = 0.3 * k;
     }
@@ -477,6 +498,8 @@ export class Character {
       this.body.position.x = h.x * 0.12 * k;
       this.body.position.z = -0.12 * k;
     }
+
+    this.solveLegs();
 
     // ---- 刀と両手 ----
     const grip = cur.grip, dir = cur.dir;
@@ -505,20 +528,39 @@ export class Character {
     if (this.lantern) this.lantern.position.set(0.32, 0.05, 0.25);
   }
 
+  // 腰の高さを足が届く範囲に収め、両脚を2関節IKで解く
+  solveLegs() {
+    const reach = THIGH + SHIN - 0.01;
+    let hipY = this._hipY;
+    for (const [f, x] of [[this.footL, 0.1], [this.footR, -0.1]]) {
+      const dx = f.x - x, dz = f.z;
+      hipY = Math.min(hipY, f.y + Math.sqrt(Math.max(0.01, reach * reach - dx * dx - dz * dz)));
+    }
+    this.hips.position.y = hipY;
+    const yaw = this.hips.rotation.y;
+    for (const [leg, f] of [[this.legL, this.footL], [this.legR, this.footR]]) {
+      const t = _g.set(f.x, f.y - hipY, f.z).applyAxisAngle(UP, -yaw);
+      this.ik(leg, t, POLE_KNEE, THIGH, SHIN);
+      // 足の裏は地面と平行に
+      const { upper, elbow, foot } = leg.userData;
+      foot.quaternion.copy(upper.quaternion).multiply(elbow.quaternion).invert();
+    }
+  }
+
   // 2関節IK（肩→肘→手）。pole は肘を向ける方向
-  ik(arm, target, pole) {
+  ik(arm, target, pole, LA = UPPER, LB = LOWER) {
     const { upper, elbow } = arm.userData;
     const S = arm.position;
     const toT = _a.copy(target).sub(S);
     let d = toT.length();
-    d = THREE.MathUtils.clamp(d, 0.08, UPPER + LOWER - 0.002);
+    d = THREE.MathUtils.clamp(d, 0.08, LA + LB - 0.002);
     toT.normalize();
-    const cosA = (UPPER * UPPER + d * d - LOWER * LOWER) / (2 * UPPER * d);
+    const cosA = (LA * LA + d * d - LB * LB) / (2 * LA * d);
     const sinA = Math.sqrt(Math.max(0, 1 - cosA * cosA));
     const perp = _b.copy(pole).addScaledVector(toT, -pole.dot(toT));
     if (perp.lengthSq() < 1e-6) perp.set(0, -1, 0);
     perp.normalize();
-    const E = _c.copy(toT).multiplyScalar(cosA * UPPER).addScaledVector(perp, sinA * UPPER); // 肩からの肘位置
+    const E = _c.copy(toT).multiplyScalar(cosA * LA).addScaledVector(perp, sinA * LA); // 肩からの肘位置
     const T = _d.copy(toT).multiplyScalar(d);
     const upDir = _e.copy(E).normalize();
     const loDir = _f.copy(T).sub(E).normalize();

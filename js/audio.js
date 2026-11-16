@@ -1,5 +1,6 @@
-// 効果音（WebAudioで合成。音声ファイル不要）
-export const Sfx = {
+// 効果音・声・BGM（WebAudioで合成。音声ファイル不要）
+// 合成はゲーム開始前にオフラインで波形へ焼き込み、プレイ中は再生するだけにする
+const Synth = {
   ctx: null, master: null, muted: false, noiseBuf: null, wind: null,
   init() {
     if (!this.ctx) {
@@ -16,7 +17,6 @@ export const Sfx = {
     if ('speechSynthesis' in window) speechSynthesis.getVoices();
   },
   toggle() { this.muted = !this.muted; if (this.master) this.master.gain.value = this.muted ? 0 : 0.8; if (this.muted && 'speechSynthesis' in window) speechSynthesis.cancel(); return this.muted; },
-  music(name) { Music.play(this, name); },
   // ---- 人の声（フォルマント合成による叫び声） ----
   // vowels: 母音の並び、f0: 声の高さ [開始, 終了]
   voice(vowels, dur, f0a, f0b, vol = 0.5, rough = 0.4, delay = 0) {
@@ -187,7 +187,7 @@ const TRACKS = {
   },
 };
 
-const Music = {
+const MusicSynth = {
   cur: null, next: null, step: 0, nextTime: 0, timer: null, bus: null, droneNodes: [],
   play(sfx, name) {
     if (!sfx.ctx || name === this.cur || !TRACKS[name]) return;
@@ -242,7 +242,10 @@ const Music = {
     const tr = TRACKS[this.cur];
     const spb = 60 / tr.bpm / 4; // 16分音符の長さ
     const total = tr.bars * 16;
-    while (this.nextTime < ctx.currentTime + 0.12) {
+    while (this.nextTime < ctx.currentTime + 0.12) this.scheduleStep(tr, spb, total);
+  },
+  scheduleStep(tr, spb, total) {
+    {
       const st = this.step % total, t = this.nextTime;
       const inBar = st % 16, bar = Math.floor(st / 16);
       if (tr.koto && (!tr.koto.everyBar || tr.koto.everyBar.includes(bar))) {
@@ -319,4 +322,213 @@ const Music = {
     const ng = ctx.createGain(); ng.gain.setValueAtTime(0.0001, t); ng.gain.exponentialRampToValueAtTime(v * 0.6, t + 0.002); ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.04);
     n.connect(hp); hp.connect(ng); ng.connect(this.bus); n.start(t, Math.random()); n.stop(t + 0.05);
   },
+};
+
+
+// =====================================================================
+// 焼き込み（OfflineAudioContext）
+// =====================================================================
+const SR = 44100;
+function noiseBuffer(ctx) {
+  const len = ctx.sampleRate * 2;
+  const b = ctx.createBuffer(1, len, ctx.sampleRate);
+  const d = b.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+  return b;
+}
+async function renderSfx(dur, fn) {
+  const off = new OfflineAudioContext(1, Math.ceil(dur * SR), SR);
+  const A = Object.create(Synth);
+  A.ctx = off; A.master = off.destination; A.noiseBuf = noiseBuffer(off); A.muted = false; A.now = () => 0.005;
+  fn(A);
+  return off.startRendering();
+}
+// BGM：一周分＋つなぎ目の分を書き出し、頭と尻をクロスフェードして継ぎ目のないループにする
+async function renderTrack(name) {
+  const tr = TRACKS[name];
+  const spb = 60 / tr.bpm / 4, total = tr.bars * 16, L = total * spb, X = 0.6;
+  const off = new OfflineAudioContext(1, Math.ceil((L + X) * SR), SR);
+  const A = Object.create(Synth);
+  A.ctx = off; A.noiseBuf = noiseBuffer(off); A.muted = false;
+  const M = Object.create(MusicSynth);
+  M.sfx = A; M.droneNodes = [];
+  M.bus = off.createGain(); M.bus.gain.value = 1;
+  const d = off.createDelay(1); d.delayTime.value = 0.23;
+  const fb = off.createGain(); fb.gain.value = 0.32;
+  const lp = off.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 2200;
+  M.bus.connect(off.destination); M.bus.connect(d); d.connect(lp); lp.connect(fb); fb.connect(d); lp.connect(off.destination);
+  // 持続音（ドローン）は最初から鳴らしておく
+  for (const deg of tr.drone || []) for (const det of [-4, 4]) {
+    const o = off.createOscillator(); o.type = 'sawtooth'; o.frequency.value = fq(deg, -1); o.detune.value = det;
+    const f = off.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 420;
+    const g = off.createGain(); g.gain.value = tr.droneVol;
+    o.connect(f); f.connect(g); g.connect(M.bus); o.start(0);
+  }
+  M.step = 0; M.nextTime = 0.005;
+  while (M.nextTime < L + X) M.scheduleStep(tr, spb, total);
+  const buf = await off.startRendering();
+  const src = buf.getChannelData(0);
+  const nL = Math.floor(L * SR), nX = Math.floor(X * SR);
+  const out = new AudioBuffer({ length: nL, numberOfChannels: 1, sampleRate: SR });
+  const o = out.getChannelData(0);
+  o.set(src.subarray(0, nL));
+  for (let i = 0; i < nX; i++) { const w = i / nX; o[i] = src[i] * w + src[nL + i] * (1 - w); }
+  return out;
+}
+async function renderWind() {
+  const dur = 6, X = 0.8;
+  const off = new OfflineAudioContext(1, Math.ceil((dur + X) * SR), SR);
+  const n = off.createBufferSource(); n.buffer = noiseBuffer(off); n.loop = true;
+  const f = off.createBiquadFilter(); f.type = 'lowpass';
+  f.frequency.setValueAtTime(260, 0); f.frequency.linearRampToValueAtTime(420, 2.2); f.frequency.linearRampToValueAtTime(300, 4.5); f.frequency.linearRampToValueAtTime(260, dur);
+  f.frequency.linearRampToValueAtTime(420, dur + 2.2);
+  const g = off.createGain(); g.gain.value = 0.5;
+  n.connect(f); f.connect(g); g.connect(off.destination); n.start(0);
+  const buf = await off.startRendering();
+  const src = buf.getChannelData(0), nL = Math.floor(dur * SR), nX = Math.floor(X * SR);
+  const out = new AudioBuffer({ length: nL, numberOfChannels: 1, sampleRate: SR });
+  const o = out.getChannelData(0);
+  o.set(src.subarray(0, nL));
+  for (let i = 0; i < nX; i++) { const w = i / nX; o[i] = src[i] * w + src[nL + i] * (1 - w); }
+  return out;
+}
+
+// 焼き込む音の一覧：[名前, 長さ(秒), 合成方法, バリエーション数]
+const BAKE = [
+  ['swing', 0.3, (A) => A.swing(), 2],
+  ['cut', 0.5, (A) => A.cut(1), 2],
+  ['cutSoft', 0.5, (A) => A.cut(0.55), 1],
+  ['clang', 0.7, (A) => A.clang(1), 2],
+  ['clangSoft', 0.7, (A) => A.clang(0.4), 1],
+  ['clatter', 0.35, (A) => A.clatter(), 1],
+  ['shing', 0.45, (A) => A.shing(), 1],
+  ['drum', 0.85, (A) => A.drum(0), 1],
+  ['shout', 0.55, (A) => A.shout(), 1],
+  ['gameover', 2.0, (A) => A.gameover(), 1],
+  ['kiai', 0.5, (A) => A.kiai(false), 5],
+  ['kiaiStrong', 0.6, (A) => A.kiai(true), 3],
+  ['cry', 0.85, (A) => A.cry(false), 5],
+  ['cryOld', 0.85, (A) => A.cry(true), 1],
+  ['roar', 0.55, (A) => A.roar(), 3],
+  ['growl', 0.6, (A) => A.voice('oa', 0.5, 125, 160, 0.3, 0.7), 2],
+  ['bossRoar', 0.8, (A) => A.voice('ao', 0.7, 110, 150, 0.45, 0.8), 1],
+  ['groan', 1.0, (A) => A.groan(), 1],
+];
+const TRACK_NAMES = Object.keys(TRACKS);
+
+// =====================================================================
+// 再生（プレイ中はバッファを鳴らすだけ）
+// =====================================================================
+export const Sfx = {
+  ctx: null, master: null, musicBus: null, muted: false, bufs: {}, tracks: {}, ready: false,
+  active: 0, MAX_VOICES: 14, curMusic: null, musicSrc: null, musicGain: null, windSrc: null,
+
+  // 読み込み画面で呼ぶ。onProgress(0..1)
+  async preload(onProgress = () => {}) {
+    if (this.ready) return;
+    if (typeof OfflineAudioContext === 'undefined') { this.ready = true; return; }
+    const jobs = [];
+    for (const [name, dur, fn, n] of BAKE) for (let i = 0; i < n; i++) jobs.push(['s', name, dur, fn]);
+    // 最初に必要な曲だけ先に作り、残りはタイトル表示後に裏で作る
+    const first = ['title', 'walk', 'fight'];
+    for (const name of first) jobs.push(['m', name]);
+    jobs.push(['w']);
+    let done = 0;
+    // 端末に負担をかけないよう少しずつ順番に
+    for (const j of jobs) {
+      try {
+        if (j[0] === 's') (this.bufs[j[1]] ||= []).push(await renderSfx(j[2], j[3]));
+        else if (j[0] === 'm') this.tracks[j[1]] = await renderTrack(j[1]);
+        else this.windBuf = await renderWind();
+      } catch (e) { console.warn('audio bake failed', j[1], e); }
+      onProgress(++done / jobs.length);
+    }
+    this.ready = true;
+    (async () => {
+      for (const name of TRACK_NAMES) if (!this.tracks[name]) {
+        try { this.tracks[name] = await renderTrack(name); } catch (e) { console.warn('audio bake failed', name, e); }
+      }
+    })();
+  },
+
+  init() {
+    if (!this.ctx) {
+      try {
+        this.ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' });
+        // 音割れ防止のリミッター
+        const comp = this.ctx.createDynamicsCompressor();
+        comp.threshold.value = -12; comp.knee.value = 6; comp.ratio.value = 12; comp.attack.value = 0.003; comp.release.value = 0.2;
+        comp.connect(this.ctx.destination);
+        this.master = this.ctx.createGain(); this.master.gain.value = 0.75; this.master.connect(comp);
+        this.musicBus = this.ctx.createGain(); this.musicBus.gain.value = 0.45; this.musicBus.connect(this.master);
+      } catch (e) { this.ctx = null; }
+    }
+    if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume();
+    if ('speechSynthesis' in window) speechSynthesis.getVoices();
+  },
+  toggle() {
+    this.muted = !this.muted;
+    if (this.master) this.master.gain.value = this.muted ? 0 : 0.75;
+    if (this.muted && 'speechSynthesis' in window) speechSynthesis.cancel();
+    return this.muted;
+  },
+
+  play(name, { vol = 1, delay = 0, rate = 1, vary = 0.06 } = {}) {
+    if (!this.ctx || this.muted) return;
+    const list = this.bufs[name];
+    if (!list || !list.length) return;
+    if (this.active >= this.MAX_VOICES) return; // 同時発音数の上限
+    const src = this.ctx.createBufferSource();
+    src.buffer = list[Math.floor(Math.random() * list.length)];
+    src.playbackRate.value = rate * (1 + (Math.random() * 2 - 1) * vary);
+    let node = src;
+    if (vol !== 1) { const g = this.ctx.createGain(); g.gain.value = vol; src.connect(g); node = g; }
+    node.connect(this.master);
+    this.active++;
+    src.onended = () => { this.active--; };
+    src.start(this.ctx.currentTime + delay);
+  },
+
+  swing() { this.play('swing', { vary: 0.1 }); },
+  cut(k = 1) { this.play(k < 0.8 ? 'cutSoft' : 'cut'); },
+  clang(k = 1) { this.play(k < 0.7 ? 'clangSoft' : 'clang', { vary: 0.04 }); },
+  clatter() { this.play('clatter', { vary: 0.15 }); },
+  shing() { this.play('shing'); },
+  drum(delay = 0) { this.play('drum', { delay, vary: 0.02 }); },
+  shout() { this.play('shout'); },
+  gameover() { this.play('gameover', { vary: 0 }); },
+  kiai(strong) { this.play(strong ? 'kiaiStrong' : 'kiai', { vary: 0.05 }); },
+  cry(old) { this.play(old ? 'cryOld' : 'cry', { vary: 0.08 }); },
+  roar() { this.play('roar'); },
+  growl() { this.play('growl', { delay: 0.1 }); },
+  bossRoar() { this.play('bossRoar', { delay: 0.3 }); },
+  groan() { this.play('groan', { vary: 0 }); },
+
+  windStart() {
+    if (!this.ctx || this.windSrc || !this.windBuf) return;
+    const src = this.ctx.createBufferSource(); src.buffer = this.windBuf; src.loop = true;
+    const g = this.ctx.createGain(); g.gain.value = 0.12;
+    src.connect(g); g.connect(this.master); src.start();
+    this.windSrc = src;
+  },
+  update() {},
+
+  // BGM：焼き込んだループを切り替える（0.6秒のクロスフェード）
+  music(name) {
+    if (!name || !this.ctx || name === this.curMusic || !this.tracks[name]) return;
+    this.curMusic = name;
+    const now = this.ctx.currentTime;
+    if (this.musicSrc) {
+      const { src, g } = this.musicSrc;
+      g.gain.cancelScheduledValues(now); g.gain.setValueAtTime(g.gain.value, now); g.gain.linearRampToValueAtTime(0, now + 0.6);
+      src.stop(now + 0.7);
+    }
+    const src = this.ctx.createBufferSource(); src.buffer = this.tracks[name]; src.loop = true;
+    const g = this.ctx.createGain(); g.gain.setValueAtTime(0, now); g.gain.linearRampToValueAtTime(1, now + 0.6);
+    src.connect(g); g.connect(this.musicBus); src.start(now);
+    this.musicSrc = { src, g };
+  },
+
+  // 台詞（ブラウザの日本語音声合成）
+  say(text, opts) { Synth.say.call(this, text, opts); },
 };

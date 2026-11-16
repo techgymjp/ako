@@ -519,7 +519,7 @@ function updateEnemy(e, dt) {
       if (e.t > e.wait && G.attackCD <= 0 && !anyAttacking() && G.state === 'fight') {
         e.state = 'windup'; e.t = 0; e.windup = e.ty.windup * (G.stopIdx === 0 ? 1.3 : 1);
         Sfx.shing();
-        if (Math.random() < 0.6) Sfx.voice('oa', 0.5, 120 + Math.random() * 30, 160, 0.3, 0.7, 0.1);
+        if (Math.random() < 0.6) Sfx.growl();
       }
       break;
     }
@@ -905,7 +905,7 @@ function arriveStop(st) {
   }
   G.state = 'fight';
   if (st.intro) banner(st.title, st.intro, 2.2);
-  if (st.enemies && st.enemies.some((d) => d.name)) Sfx.voice('ao', 0.7, 110, 150, 0.45, 0.8, 0.3);
+  if (st.enemies && st.enemies.some((d) => d.name)) Sfx.bossRoar();
   else banner(st.title, '', 1.6);
   engageStop(st);
   G.attackCD = 1.2;
@@ -1328,6 +1328,37 @@ function frame() {
 placeAtRail(0);
 G.state = 'title';
 frame();
+
+// =====================================================================
+// 読み込み：フォント・シェーダー・人物モデル・音を準備してからタイトルを出す
+// =====================================================================
+async function boot() {
+  const bar = $('loadBar'), msg = $('loadMsg');
+  const step = (p, text) => { bar.style.width = (p * 100).toFixed(0) + '%'; if (text) msg.textContent = text; };
+  const L = (ja, en) => (lang === 'en' ? en : ja);
+  step(0.02, L('文字を読み込み中……', 'Loading fonts...'));
+  try { await Promise.race([document.fonts.ready, new Promise((r) => setTimeout(r, 3000))]); } catch (e) { /* 無視 */ }
+  step(0.1, L('屋敷と人物を準備中……', 'Preparing the mansion...'));
+  await new Promise((r) => setTimeout(r, 30));
+  // 全種類の人物を一度描いて、シェーダーを先にコンパイルしておく
+  const warm = ['oishi', 'ronin', 'retainer', 'retainer2', 'boss1', 'boss2', 'boss3', 'kira'].map((t, i) => {
+    const c = new Character(t, { weapon: i === 3 ? 'spear' : undefined });
+    c.setPosition(camera.position.x + Math.sin(i) * 2, camera.position.z + 3);
+    c.update(0.016);
+    scene.add(c.root);
+    return c;
+  });
+  woundFx(new THREE.Vector3(0, -50, 0), { x: 1, y: 0 }, 0.2);
+  try { renderer.compile(scene, camera); composer.render(); } catch (e) { /* 無視 */ }
+  warm.forEach((c) => c.removeFrom(scene));
+  step(0.25, L('音を準備中……', 'Preparing sound...'));
+  await Sfx.preload((p) => step(0.25 + p * 0.75));
+  step(1);
+  await new Promise((r) => setTimeout(r, 150));
+  $('loading').classList.remove('show');
+  $('title').classList.add('show');
+}
+boot();
 
 // デバッグ・テスト用
 function sim(sec, step = 1 / 30) {

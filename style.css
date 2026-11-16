@@ -77,3 +77,9 @@ body.en h1 span{font-size:1.25em}
 body.en .btn{letter-spacing:.12em;padding:12px 30px}
 body.en #hudMsg{letter-spacing:.06em}
 body.en .loc,body.en h3,body.en .sub{letter-spacing:.06em}
+
+#loading{background:#05070d}
+.loadTitle{font-size:44px;font-weight:800;margin:0 0 18px;color:#fff;text-shadow:3px 3px 0 var(--red);letter-spacing:.2em}
+.bar{height:4px;background:rgba(255,255,255,.15);width:100%}
+#loadBar{height:100%;width:0;background:var(--red);box-shadow:0 0 8px var(--red);transition:width .2s}
+.loadMsg{font-size:13px;color:#9fb0c8;margin-top:10px;letter-spacing:.1em}
