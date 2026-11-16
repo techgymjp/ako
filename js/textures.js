@@ -323,3 +323,11 @@ export const chochinTex = () => make('chochin', 128, 128, (g, w, h) => {
   g.fillText('義', w * 0.25, h / 2);
   g.fillText('義', w * 0.75, h / 2);
 });
+
+// 斬り口の閃光（中央が明るく両端が細く消える）
+export const slashFlashTex = () => make('slashflash', 256, 32, (g, w, h) => {
+  const gx = g.createLinearGradient(0, 0, w, 0);
+  gx.addColorStop(0, 'rgba(255,255,255,0)'); gx.addColorStop(0.5, 'rgba(255,255,255,1)'); gx.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = gx;
+  g.beginPath(); g.moveTo(0, h / 2); g.quadraticCurveTo(w / 2, h * 0.1, w, h / 2); g.quadraticCurveTo(w / 2, h * 0.9, 0, h / 2); g.fill();
+}, { repeat: false });

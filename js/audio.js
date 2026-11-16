@@ -119,6 +119,7 @@ export const Sfx = {
     this.tone(1850, 0.5, 'triangle', 0.22 * k); this.tone(2730, 0.35, 'sine', 0.12 * k); this.tone(4100, 0.25, 'sine', 0.06 * k);
     this.noise(0.06, 5000, 1, 0.3 * k);
   },
+  clatter() { this.tone(2400, 0.18, 'triangle', 0.08); this.tone(3700, 0.12, 'sine', 0.05, 0.03); this.noise(0.05, 4000, 2, 0.12); this.tone(2100, 0.12, 'triangle', 0.05, 0.12); },
   shing() { this.tone(3000, 0.35, 'sine', 0.06, 0, 4200); this.noise(0.3, 6000, 4, 0.08, 0, 'bandpass', 9000); },
   drum(delay = 0) {
     this.tone(85, 0.7, 'sine', 0.9, delay, 42);

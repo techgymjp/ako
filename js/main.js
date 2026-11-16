@@ -4,6 +4,11 @@ import { buildWorld, RAIL, P, roomAtWorld, clampToRoom, WALL_H } from './world.j
 import { Character, setCharacterShadows } from './characters.js';
 import * as TX from './textures.js';
 import { Sfx } from './audio.js';
+import { EffectComposer } from '../vendor/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from '../vendor/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from '../vendor/addons/postprocessing/UnrealBloomPass.js';
+import { ShaderPass } from '../vendor/addons/postprocessing/ShaderPass.js';
+import { OutputPass } from '../vendor/addons/postprocessing/OutputPass.js';
 
 // =====================================================================
 // 初期化
@@ -32,12 +37,42 @@ scene.fog = new THREE.FogExp2(0x0c1424, 0.03);
 
 const camera = new THREE.PerspectiveCamera(58, 1, 0.08, 400);
 
+// ---- 映像の仕上げ：灯りのにじみ・周辺減光・色調・フィルムの粒子 ----
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(new THREE.Vector2(512, 512), 0.6, 0.55, 0.82);
+if (!lowEnd) composer.addPass(bloom);
+const filmPass = new ShaderPass({
+  uniforms: { tDiffuse: { value: null }, uTime: { value: 0 }, uRed: { value: 0 } },
+  vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+  fragmentShader: `
+    uniform sampler2D tDiffuse; uniform float uTime; uniform float uRed; varying vec2 vUv;
+    float rnd(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233)) + uTime) * 43758.5453); }
+    void main(){
+      vec4 c = texture2D(tDiffuse, vUv);
+      // 色調：暗部は青く、明部は暖かく
+      float l = dot(c.rgb, vec3(0.299, 0.587, 0.114));
+      c.rgb = mix(c.rgb * vec3(0.86, 0.95, 1.12), c.rgb * vec3(1.08, 1.0, 0.9), smoothstep(0.05, 0.6, l));
+      c.rgb = mix(vec3(l), c.rgb, 0.88);              // 彩度を少し落とす
+      // 周辺減光
+      vec2 d = vUv - 0.5;
+      c.rgb *= 1.0 - smoothstep(0.35, 0.85, length(d * vec2(1.1, 1.0))) * 0.62;
+      c.rgb = mix(c.rgb, c.rgb * vec3(1.5, 0.35, 0.3), uRed);
+      // フィルムの粒子
+      c.rgb += (rnd(vUv * 731.0) - 0.5) * 0.035;
+      gl_FragColor = c;
+    }`,
+});
+composer.addPass(filmPass);
+composer.addPass(new OutputPass());
+
 const overlay = document.getElementById('fx');
 const octx = overlay.getContext('2d');
 
 function resize() {
   const w = innerWidth, h = innerHeight;
   renderer.setSize(w, h, false);
+  if (typeof composer !== 'undefined') { composer.setPixelRatio(quality.pixelRatio); composer.setSize(w, h); }
   camera.aspect = w / h;
   camera.fov = w < h ? 72 : 58;
   camera.updateProjectionMatrix();
@@ -142,6 +177,82 @@ function updateSparks(dt) {
   }
   sparkGeo.attributes.position.needsUpdate = true;
   sparkGeo.attributes.color.needsUpdate = true;
+}
+
+// 血しぶきと血の跡
+const BLOOD_N = 400;
+const bloodGeo = new THREE.BufferGeometry();
+const bloodPos = new Float32Array(BLOOD_N * 3).fill(-100);
+bloodGeo.setAttribute('position', new THREE.BufferAttribute(bloodPos, 3));
+const bloodPts = new THREE.Points(bloodGeo, new THREE.PointsMaterial({ size: 0.045, color: 0x6e0a0a, transparent: true, opacity: 0.95, depthWrite: false, map: TX.snowflakeTex() }));
+bloodPts.frustumCulled = false;
+scene.add(bloodPts);
+const bloodP = [];
+let bloodIdx = 0;
+const STAIN_N = 220;
+const stainMesh = new THREE.InstancedMesh(new THREE.CircleGeometry(1, 10).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x3d0606, transparent: true, opacity: 0.82, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }), STAIN_N);
+stainMesh.count = 0; stainMesh.frustumCulled = false;
+scene.add(stainMesh);
+let stainIdx = 0;
+const _m4 = new THREE.Matrix4(), _sq = new THREE.Quaternion(), _sv = new THREE.Vector3();
+function addStain(x, z, r) {
+  _m4.compose(_sv.set(x, 0.03 + (stainIdx % 7) * 0.001, z), _sq.identity(), new THREE.Vector3(r * (0.7 + Math.random() * 0.6), 1, r));
+  stainMesh.setMatrixAt(stainIdx % STAIN_N, _m4);
+  stainIdx++;
+  stainMesh.count = Math.min(STAIN_N, stainIdx);
+  stainMesh.instanceMatrix.needsUpdate = true;
+}
+function clearBlood() { stainIdx = 0; stainMesh.count = 0; bloodP.length = 0; bloodPos.fill(-100); }
+// 斬撃の向き（画面座標）に沿って血が飛ぶ
+function emitBlood(p, dir, n) {
+  const right = _v3.set(1, 0, 0).applyQuaternion(camera.quaternion);
+  const up = new THREE.Vector3(0, 1, 0);
+  for (let i = 0; i < n; i++) {
+    const v = new THREE.Vector3().addScaledVector(right, dir.x * (1 + Math.random() * 2.2)).addScaledVector(up, dir.y * (0.8 + Math.random() * 1.6) + 0.8 + Math.random())
+      .add(new THREE.Vector3((Math.random() - 0.5) * 1.4, 0, (Math.random() - 0.5) * 1.4));
+    bloodP[bloodIdx] = { p: p.clone().add(new THREE.Vector3((Math.random() - 0.5) * 0.2, (Math.random() - 0.5) * 0.25, (Math.random() - 0.5) * 0.2)), v, i: bloodIdx };
+    bloodIdx = (bloodIdx + 1) % BLOOD_N;
+  }
+}
+function updateBlood(dt) {
+  for (let i = 0; i < BLOOD_N; i++) {
+    const b = bloodP[i];
+    if (!b) continue;
+    b.v.y -= 9.8 * dt;
+    b.p.addScaledVector(b.v, dt);
+    if (b.p.y <= 0.03) {
+      if (Math.random() < 0.5) addStain(b.p.x, b.p.z, 0.03 + Math.random() * 0.06);
+      bloodP[i] = null; bloodPos[i * 3 + 1] = -100; continue;
+    }
+    bloodPos[i * 3] = b.p.x; bloodPos[i * 3 + 1] = b.p.y; bloodPos[i * 3 + 2] = b.p.z;
+  }
+  bloodGeo.attributes.position.needsUpdate = true;
+}
+// 斬り口の閃光（なぞった角度で一瞬光る）
+const slashMarks = [];
+const slashMarkGeo = new THREE.PlaneGeometry(1.6, 0.09);
+function woundFx(p, dir, k = 1) {
+  const m = new THREE.Mesh(slashMarkGeo, new THREE.MeshBasicMaterial({ map: TX.slashFlashTex(), color: 0xffd0c0, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, side: THREE.DoubleSide }));
+  m.position.copy(p);
+  m.quaternion.copy(camera.quaternion);
+  m.rotateZ(Math.atan2(dir.y, dir.x));
+  m.renderOrder = 10;
+  scene.add(m);
+  slashMarks.push({ m, t: 0 });
+  emitBlood(p, dir, Math.round(26 * k));
+  emitSparks(p, Math.round(8 * k), 0xff4a3a, 2.5);
+  // 倒れた後に亡骸の下へ血だまり
+}
+function updateSlashMarks(dt) {
+  for (let i = slashMarks.length - 1; i >= 0; i--) {
+    const s = slashMarks[i];
+    s.t += dt;
+    const k = s.t / 0.35;
+    s.m.scale.set(0.5 + k * 0.8, 1 - k * 0.6, 1);
+    s.m.material.opacity = Math.max(0, 1 - k);
+    s.m.material.color.setRGB(1, 0.8 - k * 0.6, 0.75 - k * 0.6);
+    if (k >= 1) { scene.remove(s.m); s.m.material.dispose(); slashMarks.splice(i, 1); }
+  }
 }
 
 // 刀の軌跡（リボン）
@@ -304,7 +415,7 @@ function spawnStop(st) {
   st.spawned = true;
 }
 function clearStopEnemies(st) {
-  enemies = enemies.filter((e) => { if (e.stop === st) { scene.remove(e.ch.root); return false; } return true; });
+  enemies = enemies.filter((e) => { if (e.stop === st) { e.ch.removeFrom(scene); return false; } return true; });
   st.spawned = false;
 }
 
@@ -347,11 +458,25 @@ function updateEnemy(e, dt) {
   const ch = e.ch;
   if (!e.alive) {
     e.deadT += dt;
+    if (!e.pooled && e.deadT > 1.3) {
+      e.pooled = true;
+      e.ch.root.updateMatrixWorld(true);
+      e.ch.chestWorld(_v);
+      for (let i = 0; i < 5; i++) addStain(_v.x + (Math.random() - 0.5) * 0.4, _v.z + (Math.random() - 0.5) * 0.4, 0.12 + Math.random() * 0.14);
+    }
     ch.update(dt);
-    if (e.deadT > 8) { scene.remove(ch.root); e.removed = true; }
+    // 亡骸は二つ先の場面まで残す
+    if (STOPS.indexOf(e.stop) < G.stopIdx - 1) { ch.removeFrom(scene); e.removed = true; }
     return;
   }
   e.t += dt;
+  if (e.kb) {
+    const k = Math.min(1, dt * 8);
+    e.ch.pos.addScaledVector(e.kb, k);
+    e.kb.multiplyScalar(1 - k);
+    clampToRoom(G.room, e.ch.pos, 0.4);
+    if (e.kb.lengthSq() < 1e-4) e.kb = null;
+  }
   const moveTo = (target, speed) => {
     _v.subVectors(target, ch.pos).setY(0);
     const d = _v.length();
@@ -455,23 +580,35 @@ function updateEnemy(e, dt) {
   ch.update(dt);
 }
 
-function killEnemy(e, by, quiet = false) {
+// 斬撃の向き（画面上：x右+, y上+）から斬られ方を決める
+function deathKindOf(dir) {
+  if (dir.y > 0.45) return 'up';
+  if (Math.abs(dir.y) < 0.45) return 'side';
+  return 'down';
+}
+
+function killEnemy(e, by, quiet = false, dir = null) {
   if (!e.alive) return;
   e.alive = false; e.state = 'dead';
   if (e.duelAlly) e.duelAlly.duel = null;
   e.ch.setGlint(0);
-  _v.subVectors(e.ch.pos, by.pos);
-  e.ch.die(1);
+  if (!dir) { const a = Math.random() * Math.PI * 2; dir = { x: Math.cos(a), y: -Math.abs(Math.sin(a)) }; }
+  e.ch.die(deathKindOf(dir), dir.x >= 0 ? 1 : -1);
+  e.ch.onClatter = () => Sfx.clatter();
   e.ch.chestWorld(_v2);
-  emitSparks(_v2, quiet ? 10 : 22, 0xff3b30, 4);
+  woundFx(_v2, dir, quiet ? 0.6 : 1);
   if (!quiet) G.kills++;
+  // その場の最後の一人はスローモーション
+  if (!quiet && !enemies.some((o) => o.alive && o.stop === e.stop && !o.ally)) {
+    G.slowmo = 0.3; G.camShake = Math.max(G.camShake, 0.25);
+  }
   Sfx.cut(quiet ? 0.5 : 1);
   Sfx.cry();
 }
 
 function playerKilled(e) {
   G.state = 'dead'; G.stateT = 0;
-  player.die(1);
+  player.die('up', Math.random() < 0.5 ? 1 : -1);
   G.redFlash = 1; G.camShake = 0.6; G.slowmo = 0.25;
   Sfx.cut(1); Sfx.gameover(); Sfx.groan();
   player.chestWorld(_v); emitSparks(_v, 30, 0xff2a20, 3);
@@ -620,16 +757,18 @@ function doCut(e, dir, speed) {
     if (e === kira) { finishKira(); return; }
     if (!e.alive) return;
     e.hp -= dmg;
-    e.ch.hit();
+    e.ch.hit(dir.x, dir.y);
     G.camShake = Math.max(G.camShake, 0.12);
     G.hitStop = 0.05;
     if (e.hp <= 0) {
-      killEnemy(e, player);
+      killEnemy(e, player, false, dir);
       if (combo >= 2) { comboText(['', '', '二人斬り！', '三人斬り！', '四人斬り！', '五人斬り！'][Math.min(5, combo)]); G.maxCombo = Math.max(G.maxCombo, combo); }
       else comboText(dmg === 2 ? '剛斬！' : slashName(dir));
     } else {
       Sfx.cut(0.6);
-      e.ch.chestWorld(_v2); emitSparks(_v2, 12, 0xff5a40, 3);
+      e.ch.chestWorld(_v2); woundFx(_v2, dir, 0.45);
+      // 押し戻される
+      e.kb = new THREE.Vector3().subVectors(e.ch.pos, player.pos).setY(0).normalize().multiplyScalar(0.5);
       comboText(dmg === 2 ? '剛斬！' : '浅い！');
       e.state = 'stagger'; e.t = 0;
       e.ch.setGlint(0);
@@ -689,9 +828,10 @@ addEventListener('keydown', (ev) => {
 // 進行
 // =====================================================================
 function resetAll() {
-  enemies.forEach((e) => scene.remove(e.ch.root));
+  enemies.forEach((e) => e.ch.removeFrom(scene));
   enemies = [];
-  if (kira) { scene.remove(kira.ch.root); kira = null; }
+  if (kira) { kira.ch.removeFrom(scene); kira = null; }
+  clearBlood();
   STOPS.forEach((s) => { s.spawned = false; s.done = false; });
   Object.assign(G, { s: 0, stopIdx: 0, playTime: 0, kills: 0, retries: 0, maxCombo: 0, blocks: 0, slowmo: 1, redFlash: 0, whiteFlash: 0, attackCD: 0, lastRoomName: '' });
   player.mode = 'ready'; player.body.rotation.set(0, 0, 0);
@@ -704,8 +844,12 @@ function placeAtRail(s) {
   player.setYaw(Math.atan2(dir.x, dir.z));
   G.facing = player.facingYaw;
   allies.forEach((a, i) => {
-    const ap = railAt(s - 4.4 - i * 1.0, new THREE.Vector3());
-    a.ch.setPosition(ap.x + (i % 2 ? 0.8 : -0.8), ap.z);
+    const back = s - 4.4 - i * 1.0;
+    const ap = railAt(back, new THREE.Vector3());
+    railDirSmooth(Math.max(0, back), tmpDir);
+    if (back < 0) ap.addScaledVector(tmpDir, back);   // 進路の手前（門の外）に並ぶ
+    const side = (i % 2 ? 1 : -1) * 0.85;
+    a.ch.setPosition(ap.x + tmpDir.z * side, ap.z - tmpDir.x * side);
     a.ch.setYaw(player.facingYaw);
     a.ch.mode = 'ready';
     a.duel = null;
@@ -729,7 +873,7 @@ function startGame() {
 function retryStop() {
   const st = STOPS[G.stopIdx];
   clearStopEnemies(st);
-  if (kira) { scene.remove(kira.ch.root); kira = null; }
+  if (kira) { kira.ch.removeFrom(scene); kira = null; }
   // 次の場面の先行配置も消す
   STOPS.forEach((s, i) => { if (i > G.stopIdx && s.spawned) clearStopEnemies(s); });
   G.retries++;
@@ -804,8 +948,8 @@ function finishKira() {
   kira.alive = false;
   G.state = 'win'; G.stateT = 0;
   G.slowmo = 0.2; G.whiteFlash = 1;
-  kira.ch.die(1);
-  kira.ch.chestWorld(_v); emitSparks(_v, 30, 0xff3b30, 3);
+  kira.ch.die('down', 1);
+  kira.ch.chestWorld(_v); woundFx(_v, { x: 0.7, y: -0.7 }, 1.2);
   Sfx.cut(1); Sfx.kiai(true); Sfx.cry(true);
   later(1.2, () => Sfx.say('えい、えい、おう！', { pitch: 0.7, rate: 0.9 }));
   Sfx.drum(0.6); Sfx.drum(1.2); Sfx.drum(1.7);
@@ -942,7 +1086,7 @@ function update(dt) {
       target.x += tmpDir.z * side; target.z -= tmpDir.x * side;
       clampToRoom(roomAtWorld(target.x, target.z), target, 0.45);
     } else {
-      const offs = [[-1.3, -0.7], [1.3, -0.7], [-0.9, -1.8], [0.9, -1.8], [0, -2.5]][i];
+      const offs = [[-1.7, 0.3], [1.7, 0.3], [-2.6, -0.3], [2.6, -0.3], [0.2, -4.2]][i]; // 大石の両脇に並ぶ（カメラの視界を塞がない）
       const f = G.facing;
       target = new THREE.Vector3(player.pos.x + Math.cos(f) * offs[0] + Math.sin(f) * offs[1], 0, player.pos.z - Math.sin(f) * offs[0] + Math.cos(f) * offs[1]);
       clampToRoom(G.room, target, 0.45);
@@ -998,6 +1142,8 @@ function update(dt) {
   updateLightPool(player.pos, dt);
   updateSnow(dt, G.t);
   updateSparks(dt);
+  updateBlood(dt);
+  updateSlashMarks(dt);
   Sfx.update(G);
   Sfx.music(musicFor());
 
@@ -1163,7 +1309,8 @@ const clock = new THREE.Clock();
 function frame() {
   const dt = Math.min(0.05, clock.getDelta());
   update(dt);
-  renderer.render(scene, camera);
+  filmPass.uniforms.uTime.value = G.t % 100;
+  composer.render();
   drawOverlay();
   requestAnimationFrame(frame);
 }

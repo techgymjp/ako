@@ -231,8 +231,106 @@ export class Character {
   }
   setMode(m, dur = 0) { if (this.mode !== m) { this.mode = m; this.modeT = 0; } this.modeDur = dur; }
 
-  hit() { this.hitT = 0.3; this.flash = 0.25; }
-  die(dir = 1) { this.mode = 'dead'; this.modeT = 0; this.deadDir = dir; }
+  // 斬られてよろめく（lx,ly：斬撃が進む向き。+X=この人物の左）
+  hit(lx = 0, ly = -1) { this.hitT = 0.35; this.flash = 0.25; this.hitL = { x: lx, y: ly }; }
+
+  // 斬られ方：kind = 'down'（唐竹・袈裟）/ 'side'（横一文字）/ 'up'（斬り上げ）
+  die(kind = 'down', side = 1) {
+    if (this.mode === 'cower') { kind = 'down'; this.modeT = 0.8; } else this.modeT = 0;
+    this.mode = 'dead';
+    this.deathKind = kind; this.deathSide = side >= 0 ? 1 : -1;
+    this.dropWeapon();
+  }
+
+  // 手から離れた刀が回りながら落ちる
+  dropWeapon() {
+    if (this.weaponType === 'none' || !this.weapon.visible || !this.root.parent) return;
+    this.root.updateMatrixWorld(true);
+    const w = this.weapon.clone();
+    this.weapon.matrixWorld.decompose(w.position, w.quaternion, w.scale);
+    this.root.parent.add(w);
+    const side = this.deathSide;
+    const fwd = V(Math.sin(this.facingYaw), 0, Math.cos(this.facingYaw));
+    const right = V(Math.cos(this.facingYaw), 0, -Math.sin(this.facingYaw));
+    const vel = V().addScaledVector(right, side * (0.8 + Math.random())).addScaledVector(fwd, -0.6 - Math.random()).setY(1.6 + Math.random() * 1.2);
+    const ang = V((Math.random() - 0.5) * 14, (Math.random() - 0.5) * 6, (Math.random() - 0.5) * 14);
+    this.dropped = { obj: w, vel, ang, landed: false };
+    this.weapon.visible = false;
+  }
+  updateDropped(dt) {
+    const d = this.dropped;
+    if (!d || d.landed) return;
+    d.vel.y -= 9.8 * dt;
+    d.obj.position.addScaledVector(d.vel, dt);
+    _q.setFromEuler(new THREE.Euler(d.ang.x * dt, d.ang.y * dt, d.ang.z * dt));
+    d.obj.quaternion.multiply(_q);
+    if (d.obj.position.y < 0.06 && d.vel.y < 0) {
+      if (d.vel.y < -2.5) { // 一度跳ねる
+        d.vel.y *= -0.25; d.vel.x *= 0.4; d.vel.z *= 0.4; d.ang.multiplyScalar(0.3);
+        d.obj.position.y = 0.06;
+        if (this.onClatter) this.onClatter();
+        return;
+      }
+      // 床に寝かせる
+      const bd = V(0, 1, 0).applyQuaternion(d.obj.quaternion).setY(0);
+      if (bd.lengthSq() < 1e-4) bd.set(1, 0, 0);
+      d.obj.quaternion.setFromUnitVectors(UP, bd.normalize());
+      d.obj.rotateY(Math.PI / 2);
+      d.obj.position.y = 0.035;
+      d.landed = true;
+    }
+  }
+  removeFrom(scene) {
+    scene.remove(this.root);
+    if (this.dropped) scene.remove(this.dropped.obj);
+  }
+
+  // 斬られて倒れるまでの身体の動き。返り値は両手の目標位置
+  deathPose() {
+    const t = this.modeT, s = this.deathSide;
+    const sm = (a, b, x) => THREE.MathUtils.smoothstep(x, a, b);
+    const body = this.body, torso = this.torso, head = this.head;
+    let hands;
+    if (this.deathKind === 'up') {
+      // 斬り上げ：のけぞって後ろへよろめき、仰向けに倒れる
+      const recoil = sm(0, 0.12, t), stag = sm(0.05, 0.5, t), fall = sm(0.35, 0.95, t);
+      torso.rotation.set(-0.55 * recoil + 0.2 * fall, 0.2 * s * recoil, 0);
+      head.rotation.set(-0.6 * recoil + 0.4 * fall, 0, 0);
+      this.legL.rotation.set(0.35 * stag - 0.4 * fall, 0, 0.12); this.legR.rotation.set(-0.25 * stag - 0.5 * fall, 0, -0.12);
+      this.hips.position.y = 0.93 - 0.05 * stag;
+      body.position.z = -0.45 * stag;
+      body.rotation.x = -1.5 * fall + 0.05 * Math.sin(Math.min(1, (t - 0.95) * 4) * Math.PI) * (t > 0.95 ? 1 : 0);
+      body.position.y = 0.1 * fall;
+      hands = t < 0.5 ? [V(-0.45, 0.75, 0.0), V(0.45, 0.7, 0.0)] : [V(-0.5, 0.45, -0.1), V(0.5, 0.5, -0.1)];
+    } else if (this.deathKind === 'side') {
+      // 横一文字：斬られた勢いで身体が回り、よろけて横倒し
+      const spin = sm(0, 0.22, t), stag = sm(0.1, 0.7, t), fall = sm(0.55, 1.15, t);
+      torso.rotation.set(0.35 * stag, 0.95 * s * spin - 0.3 * s * fall, -0.25 * s * stag);
+      head.rotation.set(0.3 * stag, 0.4 * s * spin, 0);
+      this.hips.rotation.y = 0.5 * s * spin;
+      this.legL.rotation.set(-0.3 * stag, 0, 0.04 + 0.3 * stag * s); this.legR.rotation.set(0.25 * stag, 0, -0.04 + 0.2 * stag * s);
+      this.hips.position.y = 0.93 - 0.08 * stag;
+      body.position.x = 0.55 * s * stag;
+      body.rotation.z = -1.42 * s * fall;
+      body.rotation.x = 0.25 * fall;
+      body.position.y = 0.12 * fall;
+      hands = [V(-0.05, 0.28, 0.2), V(0.08, 0.3, 0.22)];
+      if (fall > 0.6) hands = [V(-0.35, 0.0, 0.25), V(0.35, 0.1, 0.1)];
+    } else {
+      // 唐竹割り・袈裟斬り：のけぞり → 傷を押さえて膝から崩れ → 前のめりに倒れる
+      const recoil = sm(0, 0.12, t) * (1 - sm(0.15, 0.45, t)), kneel = sm(0.2, 0.75, t), fall = sm(0.95, 1.45, t);
+      torso.rotation.set(-0.45 * recoil + 0.6 * kneel - 0.35 * fall, 0.2 * s * kneel, 0.12 * s * kneel);
+      head.rotation.set(-0.5 * recoil + 0.45 * kneel - 0.3 * fall, 0.2 * s * kneel, 0);
+      // 膝をつく（脚の下側は床に隠れる）
+      this.legL.rotation.set(0.2 * kneel, 0, 0.08); this.legR.rotation.set(-0.35 * kneel, 0, -0.08);
+      this.hips.position.y = 0.93 - 0.43 * kneel;
+      body.rotation.x = 1.38 * fall;
+      body.rotation.z = -0.15 * s * fall;
+      body.position.y = 0.05 * fall;
+      hands = fall < 0.4 ? [V(-0.04, 0.22, 0.24), V(0.06, 0.32, 0.22)] : [V(-0.4, 0.3, 0.35), V(0.35, 0.2, 0.3)];
+    }
+    return hands;
+  }
 
   // 斬撃の軌道上の姿勢（u: 0=振りかぶり頂点 → 1=振り抜き）
   swingPose(u, out) {
@@ -362,17 +460,22 @@ export class Character {
       this.torso.rotation.x = 0.35 * k + Math.sin(this.phase * 3) * 0.02;
       this.head.rotation.x = 0.3 * k;
     }
+    let deadHands = null;
     if (this.mode === 'dead') {
-      const k = Math.min(1, this.modeT / 0.7);
-      const e = 1 - Math.pow(1 - k, 2);
-      this.body.rotation.x = -this.deadDir * 1.45 * e;
-      this.body.position.y = 0.12 * e;
-      this.legL.rotation.x = 0.3 * e; this.legR.rotation.x = -0.2 * e;
+      deadHands = this.deathPose();
+      hideWeapon = true;
+      this.updateDropped(dt);
     }
     if (this.hitT > 0 && this.mode !== 'dead') {
-      const k = this.hitT / 0.3;
-      this.torso.rotation.x -= 0.4 * k;
-      this.body.position.z = -0.15 * k;
+      // 斬られた向きによろめく
+      const k = Math.sin(Math.min(1, this.hitT / 0.35) * Math.PI * 0.5);
+      const h = this.hitL || { x: 0, y: -1 };
+      this.torso.rotation.x -= (0.3 + 0.25 * Math.max(0, h.y)) * k;
+      this.torso.rotation.z -= h.x * 0.35 * k;
+      this.torso.rotation.y += h.x * 0.3 * k;
+      this.head.rotation.x -= 0.3 * k;
+      this.body.position.x = h.x * 0.12 * k;
+      this.body.position.z = -0.12 * k;
     }
 
     // ---- 刀と両手 ----
@@ -382,7 +485,10 @@ export class Character {
       this.weapon.position.copy(grip);
       this.weapon.quaternion.setFromUnitVectors(UP, dir);
     }
-    if (cower) {
+    if (deadHands) {
+      this.ik(this.armR, deadHands[0], POLE_R);
+      this.ik(this.armL, deadHands[1], POLE_L);
+    } else if (cower) {
       this.ik(this.armR, V(-0.08, 0.8, 0.26), POLE_R);
       this.ik(this.armL, V(0.08, 0.82, 0.26), POLE_L);
     } else if (this.weaponType === 'none' || hideWeapon) {
