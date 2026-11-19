@@ -13,7 +13,7 @@ window.Ads = (() => {
       // 本番の広告ユニット（AdMob の Android アプリ「忠臣蔵」）。空の種類は本番ビルドで出さない
       production: {
         interstitial: 'ca-app-pub-6411535997477460/6008810383',
-        rewarded: 'ca-app-pub-6411535997477460/7512344188',
+        rewarded: 'ca-app-pub-6411535997477460/3602138899',
         banner: 'ca-app-pub-6411535997477460/3310494857',
       },
     },
